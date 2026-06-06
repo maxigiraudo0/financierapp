@@ -1,0 +1,249 @@
+'use client'
+import { useEffect, useState } from 'react'
+import { supabase, OPERATION_LABELS, type OperationType } from '@/lib/supabase'
+
+interface Cliente { id: string; nombre: string }
+
+const today = new Date().toISOString().split('T')[0]
+
+// Origen: operaciones que GENERAN un pool de pesos
+const ORIGENES = [
+  { value: 'venta_usdt_pesos', label: 'Venta USDT por Pesos TT', activo: 'usdt' },
+  { value: 'venta_usd_transfer', label: 'Venta USD por Pesos TT', activo: 'usd' },
+]
+
+// Destino: operaciones que CONSUMEN pesos comprando moneda
+const DESTINOS = [
+  { value: 'compra_usd_transfer', label: 'Compra USD', resultado: 'usd' },
+  { value: 'compra_usdt_pesos', label: 'Compra USDT', resultado: 'usdt' },
+]
+
+interface Destino {
+  cliente_id: string
+  tipo: string
+  tipo_cambio: string
+  monto_ars: string
+  estado: 'efectivo' | 'deuda'  // efectivo = operación completa | deuda = el cliente me debe
+}
+
+export default function MesaPage() {
+  const [clientes, setClientes] = useState<Cliente[]>([])
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  // Origen
+  const [origenTipo, setOrigenTipo] = useState('venta_usdt_pesos')
+  const [origenCliente, setOrigenCliente] = useState('')
+  const [origenMonto, setOrigenMonto] = useState('')   // USDT o USD vendido
+  const [origenTC, setOrigenTC] = useState('')
+  const [fecha, setFecha] = useState(today)
+
+  // Destinos
+  const [destinos, setDestinos] = useState<Destino[]>([])
+
+  useEffect(() => {
+    supabase.from('clientes').select('id, nombre').eq('activo', true).order('nombre')
+      .then(({ data }) => { if (data) setClientes(data) })
+  }, [])
+
+  const origenActivo = ORIGENES.find(o => o.value === origenTipo)?.activo || 'usdt'
+  const totalPool = (parseFloat(origenMonto) || 0) * (parseFloat(origenTC) || 0)
+  const asignado = destinos.reduce((s, d) => s + (parseFloat(d.monto_ars) || 0), 0)
+  const restante = totalPool - asignado
+
+  const addDestino = () => setDestinos([...destinos, { cliente_id: '', tipo: 'compra_usd_transfer', tipo_cambio: '', monto_ars: restante > 0 ? restante.toFixed(2) : '', estado: 'efectivo' }])
+  const updateDestino = (i: number, patch: Partial<Destino>) => setDestinos(ds => ds.map((d, idx) => idx === i ? { ...d, ...patch } : d))
+  const removeDestino = (i: number) => setDestinos(ds => ds.filter((_, idx) => idx !== i))
+
+  const f = (n: number, dec = 2) => n.toLocaleString('es-AR', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+  const resultadoDestino = (d: Destino) => {
+    const tc = parseFloat(d.tipo_cambio) || 0
+    const ars = parseFloat(d.monto_ars) || 0
+    return tc > 0 ? ars / tc : 0
+  }
+
+  const handleGuardar = async () => {
+    if (!origenMonto || !origenTC) { alert('Completá el origen (monto y tipo de cambio)'); return }
+    setSaving(true)
+    setMsg('')
+
+    // 1. Operación origen (venta que genera los pesos)
+    const origenPayload: Record<string, unknown> = {
+      cliente_id: origenCliente || null,
+      tipo: origenTipo,
+      tipo_cambio: parseFloat(origenTC),
+      monto_pesos: totalPool,
+      fecha, pagado: true,
+    }
+    if (origenActivo === 'usdt') origenPayload.monto_usdt = parseFloat(origenMonto)
+    else origenPayload.monto_usd = parseFloat(origenMonto)
+
+    const { error: e1 } = await supabase.from('operaciones').insert(origenPayload)
+    if (e1) { alert('Error origen: ' + e1.message); setSaving(false); return }
+
+    // 2. Cada destino
+    for (const d of destinos) {
+      const ars = parseFloat(d.monto_ars) || 0
+      const tc = parseFloat(d.tipo_cambio) || 0
+      if (ars <= 0 || tc <= 0) continue
+      const resultado = ars / tc
+      const esUsdt = d.tipo === 'compra_usdt_pesos'
+      const pendiente = d.estado === 'deuda' ? 'me_deben' : null
+
+      const payload: Record<string, unknown> = {
+        cliente_id: d.cliente_id || null,
+        tipo: d.tipo,
+        tipo_cambio: tc,
+        monto_pesos: ars,
+        fecha,
+        pendiente,
+        pagado: d.estado === 'efectivo',
+      }
+      if (esUsdt) payload.monto_usdt = resultado
+      else payload.monto_usd = resultado
+
+      const { error: e2 } = await supabase.from('operaciones').insert(payload)
+      if (e2) { alert('Error destino: ' + e2.message); setSaving(false); return }
+
+      // Si va a deuda → registrar en la calle
+      if (d.estado === 'deuda' && d.cliente_id) {
+        await supabase.from('saldo_calle').insert({
+          cliente_id: d.cliente_id,
+          moneda: esUsdt ? 'USDT' : 'USD',
+          monto: resultado,
+          direccion: 'deben',
+          descripcion: `${DESTINOS.find(x => x.value === d.tipo)?.label} @ ${tc}`,
+          fecha, activo: true,
+        })
+      }
+    }
+
+    setSaving(false)
+    setMsg('✓ Mesa guardada correctamente')
+    setOrigenMonto(''); setOrigenTC(''); setOrigenCliente(''); setDestinos([])
+  }
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-[#1a1a2e]">🔀 Mesa / Arbitraje</h1>
+        <p className="text-gray-500 text-sm mt-1">Distribuí una venta entre varias compras a clientes</p>
+      </div>
+
+      {/* ORIGEN */}
+      <div className="card mb-4 border-l-4 border-[#2EDBB8]">
+        <div className="text-xs font-bold text-[#2EDBB8] uppercase tracking-wide mb-4">1 · Origen — venta que genera pesos</div>
+        <div className="grid grid-cols-4 gap-3">
+          <div className="col-span-2">
+            <label className="label">Tipo</label>
+            <select className="input" value={origenTipo} onChange={e => setOrigenTipo(e.target.value)}>
+              {ORIGENES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Cliente (quién compra)</label>
+            <select className="input" value={origenCliente} onChange={e => setOrigenCliente(e.target.value)}>
+              <option value="">— Opcional —</option>
+              {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Fecha</label>
+            <input className="input" type="date" value={fecha} onChange={e => setFecha(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Monto {origenActivo.toUpperCase()}</label>
+            <input className="input" type="number" step="0.01" placeholder="5000" value={origenMonto} onChange={e => setOrigenMonto(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Tipo de cambio</label>
+            <input className="input" type="number" step="0.01" placeholder="1500" value={origenTC} onChange={e => setOrigenTC(e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className="label">Pool de pesos generado</label>
+            <div className="input bg-[#f0fdf9] font-bold text-[#1a1a2e] flex items-center">$ {f(totalPool, 0)}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Barra de asignación */}
+      {totalPool > 0 && (
+        <div className="card mb-4 flex items-center justify-between">
+          <div className="flex gap-8">
+            <div><div className="text-xs text-gray-400">Pool</div><div className="font-bold">${f(totalPool, 0)}</div></div>
+            <div><div className="text-xs text-gray-400">Asignado</div><div className="font-bold text-blue-600">${f(asignado, 0)}</div></div>
+            <div><div className="text-xs text-gray-400">Restante</div><div className={`font-bold ${Math.abs(restante) < 1 ? 'text-green-600' : restante < 0 ? 'text-red-600' : 'text-orange-500'}`}>${f(restante, 0)}</div></div>
+          </div>
+          <button onClick={addDestino} className="btn-primary text-sm">+ Agregar compra</button>
+        </div>
+      )}
+
+      {/* DESTINOS */}
+      <div className="space-y-3 mb-6">
+        {destinos.map((d, i) => (
+          <div key={i} className="card border-l-4 border-orange-300">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs font-bold text-orange-500 uppercase tracking-wide">Compra #{i + 1}</div>
+              <button onClick={() => removeDestino(i)} className="text-red-400 hover:text-red-600 text-xs">✕ Quitar</button>
+            </div>
+            <div className="grid grid-cols-5 gap-3 items-end">
+              <div>
+                <label className="label">Cliente</label>
+                <select className="input" value={d.cliente_id} onChange={e => updateDestino(i, { cliente_id: e.target.value })}>
+                  <option value="">—</option>
+                  {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Compro</label>
+                <select className="input" value={d.tipo} onChange={e => updateDestino(i, { tipo: e.target.value })}>
+                  {DESTINOS.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">T/C</label>
+                <input className="input" type="number" step="0.01" placeholder="1440" value={d.tipo_cambio} onChange={e => updateDestino(i, { tipo_cambio: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Pesos usados</label>
+                <input className="input" type="number" step="0.01" value={d.monto_ars} onChange={e => updateDestino(i, { monto_ars: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Resultado</label>
+                <div className="input bg-gray-50 font-mono text-sm flex items-center">
+                  {d.tipo === 'compra_usdt_pesos' ? '◎' : '$'}{f(resultadoDestino(d))}
+                </div>
+              </div>
+            </div>
+            {/* Estado: efectivo o deuda */}
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <button type="button" onClick={() => updateDestino(i, { estado: 'efectivo' })}
+                className={`py-2 rounded-lg text-sm font-bold transition-colors ${d.estado === 'efectivo' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                💵 Entrega en efectivo
+              </button>
+              <button type="button" onClick={() => updateDestino(i, { estado: 'deuda' })}
+                className={`py-2 rounded-lg text-sm font-bold transition-colors ${d.estado === 'deuda' ? 'bg-[#2EDBB8] text-[#1a1a2e]' : 'bg-gray-100 text-gray-500'}`}>
+                📝 Va a deuda (cuenta corriente)
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {msg && <div className="mb-4 bg-green-50 text-green-700 px-4 py-3 rounded-lg text-sm font-medium">{msg}</div>}
+
+      {totalPool > 0 && (
+        <div className="flex gap-3">
+          <button onClick={handleGuardar} disabled={saving} className="btn-primary px-8 py-3 disabled:opacity-50">
+            {saving ? 'Guardando...' : '✓ Guardar Mesa'}
+          </button>
+          {Math.abs(restante) > 1 && (
+            <span className="self-center text-sm text-orange-500">
+              ⚠️ Quedan ${f(restante, 0)} sin asignar
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
