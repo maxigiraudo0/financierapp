@@ -199,12 +199,26 @@ export default function OperacionesPage() {
     if (editId) {
       const { error } = await supabase.from('operaciones').update(payload).eq('id', editId)
       if (error) { alert('Error al editar:\n' + JSON.stringify(error, null, 2)); setSaving(false); return }
+      // Si es pago de deuda con entrega en sheet → actualizar esa fila
+      if (form.tipo.startsWith('pago_deuda_') && form.cliente_id) {
+        const { data: op } = await supabase.from('operaciones').select('sheet_fila').eq('id', editId).single()
+        const montoPago = parseFloat(form.montoDeuda) || 0
+        if (op?.sheet_fila && montoPago > 0) {
+          try {
+            await fetch('/api/registrar-pago-sheet', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cliente_id: form.cliente_id, fecha: form.fecha, monto_usd: montoPago, fila: op.sheet_fila }),
+            })
+          } catch {}
+        }
+      }
       setShowForm(false); setEditId(null); setForm({ ...emptyForm, fecha: today }); setSaving(false); loadAll()
       return
     }
 
-    const { error } = await supabase.from('operaciones').insert(payload)
+    const { data: insertada, error } = await supabase.from('operaciones').insert(payload).select('id').single()
     if (error) { alert('Error al guardar:\n' + JSON.stringify(error, null, 2)); setSaving(false); return }
+    const opId = insertada?.id
 
     // Si quedó algo pendiente → crear saldo en la calle automáticamente
     if (!esDeuda && form.pendiente !== 'ok' && form.cliente_id) {
@@ -266,13 +280,17 @@ export default function OperacionesPage() {
       // Yo pago lo que le debo (reduce 'debo'); si pago de más → me debe ('deben')
       const sobra = await reducirDeuda(moneda, 'debo', montoPago)
       await crearSobrante(moneda, 'deben', sobra)
-      // Pago en USD a cliente con sheet vinculado → registrar entrega en su sheet
-      if (moneda === 'USD' && form.cliente_id && montoPago > 0) {
+      // Pago a cliente con sheet vinculado → registrar entrega en su sheet (USD o ARS)
+      if (form.cliente_id && montoPago > 0) {
         try {
-          await fetch('/api/registrar-pago-sheet', {
+          const res = await fetch('/api/registrar-pago-sheet', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ cliente_id: form.cliente_id, fecha: form.fecha, monto_usd: montoPago }),
           })
+          const j = await res.json()
+          if (j?.fila && opId) {
+            await supabase.from('operaciones').update({ sheet_fila: j.fila, sheet_rango: j.rango || null }).eq('id', opId)
+          }
         } catch {}
       }
     }
@@ -285,6 +303,16 @@ export default function OperacionesPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('¿Eliminar esta operación?')) return
+    // Si la operación dejó una entrega en el sheet del cliente, limpiarla
+    const { data: op } = await supabase.from('operaciones').select('cliente_id, sheet_fila, sheet_rango').eq('id', id).single()
+    if ((op?.sheet_fila || op?.sheet_rango) && op?.cliente_id) {
+      try {
+        await fetch('/api/borrar-pago-sheet', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cliente_id: op.cliente_id, fila: op.sheet_fila, rango: op.sheet_rango }),
+        })
+      } catch {}
+    }
     await supabase.from('operaciones').delete().eq('id', id)
     loadAll()
   }

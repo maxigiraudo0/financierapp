@@ -12,9 +12,10 @@ function parseMonto(v: unknown): number {
 
 export async function POST(req: NextRequest) {
   try {
-    const { cliente_id, sheet_id, gid, celda, auto_mes } = await req.json()
+    const { cliente_id, sheet_id, gid, celda, auto_mes, moneda } = await req.json()
     if (!cliente_id || !sheet_id || !gid) return NextResponse.json({ error: 'Falta cliente_id, sheet_id o gid' }, { status: 400 })
     const cell = (celda || 'J10').toUpperCase()
+    const mon = (moneda || 'USD').toUpperCase()
 
     const sheets = await getSheetsClient(true)
     const meta = await sheets.spreadsheets.get({ spreadsheetId: sheet_id, fields: 'sheets.properties' })
@@ -41,19 +42,19 @@ export async function POST(req: NextRequest) {
     })
     const valor = parseMonto(resp.data.values?.[0]?.[0])
 
-    // Reemplazar el saldo "le debo USD" generado desde el sheet del cliente
-    await supabase.from('saldo_calle').delete().eq('cliente_id', cliente_id).eq('origen', 'cliente_sheet')
+    // El saldo de este cliente lo define el sheet → borrar TODOS sus saldos previos
+    await supabase.from('saldo_calle').delete().eq('cliente_id', cliente_id)
     if (valor > 0) {
       await supabase.from('saldo_calle').insert({
-        cliente_id, moneda: 'USD', monto: Math.round(valor * 100) / 100,
-        direccion: 'debo', descripcion: `Liquidación USD (sheet, ${cell})`,
+        cliente_id, moneda: mon, monto: Math.round(valor * 100) / 100,
+        direccion: 'debo', descripcion: `Liquidación ${mon} (sheet, ${cell})`,
         fecha: new Date().toISOString().split('T')[0], activo: true, origen: 'cliente_sheet',
       })
     }
     // Guardar config en el cliente
-    await supabase.from('clientes').update({ sheet_id, sheet_gid: gidUsado, sheet_celda: cell }).eq('id', cliente_id)
+    await supabase.from('clientes').update({ sheet_id, sheet_gid: gidUsado, sheet_celda: cell, sheet_moneda: mon }).eq('id', cliente_id)
 
-    return NextResponse.json({ ok: true, solapa: title, celda: cell, valor })
+    return NextResponse.json({ ok: true, solapa: title, celda: cell, valor, moneda: mon })
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
   }

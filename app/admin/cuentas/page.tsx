@@ -118,13 +118,13 @@ export default function CuentasPage() {
       } catch {}
     }
     // Sheets de cliente (liquidación J10)
-    const { data: clientesSheet } = await supabase.from('clientes').select('id, sheet_id, sheet_gid, sheet_celda').not('sheet_id', 'is', null)
+    const { data: clientesSheet } = await supabase.from('clientes').select('id, sheet_id, sheet_gid, sheet_celda, sheet_moneda').not('sheet_id', 'is', null)
     for (const cl of (clientesSheet || [])) {
       tot++
       try {
         const res = await fetch('/api/import-cliente-sheet', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cliente_id: cl.id, sheet_id: cl.sheet_id, gid: cl.sheet_gid, celda: cl.sheet_celda || 'J10', auto_mes: true }),
+          body: JSON.stringify({ cliente_id: cl.id, sheet_id: cl.sheet_id, gid: cl.sheet_gid, celda: cl.sheet_celda || 'J10', moneda: cl.sheet_moneda || 'USD' }),
         })
         if (res.ok) ok++
       } catch {}
