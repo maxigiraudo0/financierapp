@@ -88,6 +88,11 @@ export function computeDelta(op: Op): StockDelta {
     return d
   }
 
+  // ── Préstamo no entregado todavía → no mueve caja (solo queda la deuda) ──
+  if (tipo.startsWith('prestamo_') && op.pendiente === 'no_entregado') {
+    return d
+  }
+
   // ── Bajada de cable ──
   // Entra USD a la cuenta USA (monto recibido en banco) y entregás USD cash
   // menos la comisión (la comisión queda como ganancia).
@@ -124,6 +129,11 @@ export function computeDelta(op: Op): StockDelta {
       d.usd += usd; d.usdt += usdt; d.eur += eur
       d.ars_cash += pesos; d.ars_tt += pesos; d.usa += usd
       break
+    // Préstamos (sale de la caja; el cliente queda debiendo)
+    case 'prestamo_usd':    d.usd      -= usd;   break
+    case 'prestamo_usdt':   d.usdt     -= usdt;  break
+    case 'prestamo_ars':    d.ars_cash -= pesos; break
+    case 'prestamo_ars_tt': d.ars_tt   -= pesos; break
     // Gastos (restan de la caja)
     case 'gasto_usd':       d.usd      -= usd;   break
     case 'gasto_usdt':      d.usdt     -= usdt;  break

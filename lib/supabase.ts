@@ -30,6 +30,8 @@ export type OperationType =
   // Cobros y pagos de calle
   | 'cobro_deuda_usd' | 'cobro_deuda_ars' | 'cobro_deuda_usdt' | 'cobro_deuda_eur'
   | 'pago_deuda_usd'  | 'pago_deuda_ars'  | 'pago_deuda_usdt'  | 'pago_deuda_eur'
+  // Préstamos (sale de la caja, el cliente queda debiendo)
+  | 'prestamo_ars' | 'prestamo_ars_tt' | 'prestamo_usdt' | 'prestamo_usd'
 
 export const OPERATION_LABELS: Record<OperationType, string> = {
   compra_usd_cash: 'Compra USD Cash',
@@ -75,6 +77,10 @@ export const OPERATION_LABELS: Record<OperationType, string> = {
   pago_deuda_ars:   '💸 Pago de deuda ARS',
   pago_deuda_usdt:  '💸 Pago de deuda USDT',
   pago_deuda_eur:   '💸 Pago de deuda EUR',
+  prestamo_ars:     '🤝 Préstamo ARS (efectivo)',
+  prestamo_ars_tt:  '🤝 Préstamo ARS TT',
+  prestamo_usdt:    '🤝 Préstamo USDT',
+  prestamo_usd:     '🤝 Préstamo USD',
 }
 
 export const OPERATION_GROUPS: { label: string; types: OperationType[] }[] = [
@@ -110,6 +116,10 @@ export const OPERATION_GROUPS: { label: string; types: OperationType[] }[] = [
     label: '💰 Cobros y Pagos Calle',
     types: ['cobro_deuda_usd','cobro_deuda_ars','cobro_deuda_usdt','cobro_deuda_eur','pago_deuda_usd','pago_deuda_ars','pago_deuda_usdt','pago_deuda_eur'],
   },
+  {
+    label: '🤝 Préstamos',
+    types: ['prestamo_ars', 'prestamo_ars_tt', 'prestamo_usdt', 'prestamo_usd'],
+  },
 ]
 
 export const OPERATION_COLORS: Record<string, string> = {
@@ -141,6 +151,10 @@ export const OPERATION_COLORS: Record<string, string> = {
   ajuste_ars_cash: 'bg-gray-200 text-gray-700',
   ajuste_ars_tt: 'bg-gray-200 text-gray-700',
   ajuste_usa: 'bg-gray-200 text-gray-700',
+  prestamo_ars: 'bg-indigo-100 text-indigo-800',
+  prestamo_ars_tt: 'bg-indigo-100 text-indigo-800',
+  prestamo_usdt: 'bg-indigo-100 text-indigo-800',
+  prestamo_usd: 'bg-indigo-100 text-indigo-800',
 }
 
 // Which operation types use porcentaje
