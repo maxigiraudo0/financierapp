@@ -29,6 +29,11 @@ export default function AdminDashboard() {
   const [stock, setStock] = useState<StockDelta & { base_fecha: string | null }>({ ...ZERO_DELTA, base_fecha: null })
   const [calle, setCalle] = useState<Calle>({ deben_usd: 0, debo_usd: 0, deben_ars: 0, debo_ars: 0 })
   const [tc, setTc] = useState(1425)
+  const [tcArsCash, setTcArsCash] = useState(1425)
+  const [tcArsTt, setTcArsTt] = useState(1425)
+  const [tcUsdt, setTcUsdt] = useState(1)
+  const [tcUsa, setTcUsa] = useState(1)
+  const [tcEur, setTcEur] = useState(1.08)
   const [ultimasOps, setUltimasOps] = useState<Operacion[]>([])
   const [stats, setStats] = useState({ clientes: 0, operaciones: 0, ops_hoy: 0 })
   const [loading, setLoading] = useState(true)
@@ -40,6 +45,22 @@ export default function AdminDashboard() {
   const [savingCalle, setSavingCalle] = useState(false)
 
   useEffect(() => { loadData() }, [])
+
+  // Cargar TC guardados
+  useEffect(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('tc_config') || '{}')
+      if (s.tc) setTc(s.tc)
+      if (s.tcArsCash) setTcArsCash(s.tcArsCash)
+      if (s.tcArsTt) setTcArsTt(s.tcArsTt)
+      if (s.tcUsdt) setTcUsdt(s.tcUsdt)
+      if (s.tcUsa) setTcUsa(s.tcUsa)
+      if (s.tcEur) setTcEur(s.tcEur)
+    } catch {}
+  }, [])
+  useEffect(() => {
+    localStorage.setItem('tc_config', JSON.stringify({ tc, tcArsCash, tcArsTt, tcUsdt, tcUsa, tcEur }))
+  }, [tc, tcArsCash, tcArsTt, tcUsdt, tcUsa, tcEur])
 
   const loadData = async () => {
     try {
@@ -209,13 +230,25 @@ export default function AdminDashboard() {
     await loadData()
   }
 
-  const f = (n: number, dec = 2) => n.toLocaleString('es-AR', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+  const f = (n: number, dec = 2) => {
+    const x = Number(n)
+    return (Number.isFinite(x) ? x : 0).toLocaleString('es-AR', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+  }
 
-  const totalUSD = stock.usd + stock.usa + stock.usdt
-    + (stock.eur * 1.08)
-    + (stock.ars_cash / tc)
-    + (stock.ars_tt / tc)
-  const netCalle = (calle.deben_usd - calle.debo_usd) + ((calle.deben_ars - calle.debo_ars) / tc)
+  const num = (v: number | string | null | undefined, d = 0) => {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : d
+  }
+  const div = (a: number, t: number) => (t > 0 ? a / t : 0)   // evita /0
+  const totalUSD = num(stock.usd)
+    + num(stock.usa) * num(tcUsa, 1)
+    + num(stock.usdt) * num(tcUsdt, 1)
+    + num(stock.eur) * num(tcEur, 1)
+    + div(num(stock.ars_cash), num(tcArsCash))
+    + div(num(stock.ars_tt), num(tcArsTt))
+  const netCalle = (num(calle.deben_usd) - num(calle.debo_usd))
+    + div(num(calle.deben_ars) - num(calle.debo_ars), num(tcArsCash))
+  const totalGlobal = totalUSD + netCalle
 
   if (loading) return <div className="flex items-center justify-center h-64 text-gray-400">Cargando...</div>
 
@@ -232,17 +265,6 @@ export default function AdminDashboard() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2 shadow-sm">
-            <span className="text-xs font-bold text-gray-400 uppercase">T.C Blue</span>
-            <span className="text-gray-300">|</span>
-            <span className="font-bold text-[#1a1a2e]">$</span>
-            <input
-              type="number"
-              value={tc}
-              onChange={e => setTc(Number(e.target.value))}
-              className="w-20 font-bold text-[#1a1a2e] focus:outline-none text-right"
-            />
-          </div>
           <button onClick={() => abrirSaldos(false)} className="btn-primary text-sm px-4 py-2">📥 Saldos Iniciales</button>
           <button onClick={() => abrirSaldos(true)} className="btn-secondary text-sm px-4 py-2">✏️ Editar Saldos</button>
           <button onClick={() => setShowCalle(true)} className="btn-secondary text-sm px-4 py-2">🚶 Cargar Calle</button>
@@ -392,12 +414,14 @@ export default function AdminDashboard() {
 
       {/* Total + Calle */}
       <div className="grid grid-cols-3 gap-4 mb-8">
-        <div className="card bg-[#1a1a2e] text-white">
-          <div className="text-xs font-bold text-[#2EDBB8] uppercase mb-1">TOTAL (en USD)</div>
-          <div className="text-3xl font-bold">${f(totalUSD)}</div>
-          <div className="text-xs text-gray-400 mt-1">T.C ${tc.toLocaleString()}</div>
-          <div className="mt-3 pt-3 border-t border-white/10 text-xs text-gray-400">
-            con calle: <span className="font-bold text-white">${f(totalUSD + netCalle)}</span>
+        <div className="card text-white" style={{ backgroundColor: '#1a1a2e' }}>
+          <div className="text-xs font-bold text-[#2EDBB8] uppercase mb-1">🌐 TOTAL GLOBAL (en USD)</div>
+          <div className="text-3xl font-bold">${f(totalGlobal)}</div>
+          <div className="text-xs text-gray-400 mt-1">Cajas + En la Calle</div>
+          <div className="mt-3 pt-3 border-t border-white/10 text-xs text-gray-400 space-y-0.5">
+            <div className="flex justify-between"><span>Solo cajas</span><span className="font-bold text-white">${f(totalUSD)}</span></div>
+            <div className="flex justify-between"><span>Neto calle</span><span className={`font-bold ${netCalle >= 0 ? 'text-green-400' : 'text-red-400'}`}>{netCalle >= 0 ? '+' : ''}${f(netCalle)}</span></div>
+            <div className="flex justify-between text-[10px] pt-1 text-gray-500"><span>ARS Fís ${tcArsCash.toLocaleString()} · ARS TT ${tcArsTt.toLocaleString()} · USDT {tcUsdt} · USA {tcUsa} · EUR {tcEur}</span></div>
           </div>
         </div>
         <div className="card border border-red-200 col-span-2">
@@ -443,6 +467,39 @@ export default function AdminDashboard() {
           <div className="text-3xl font-bold text-gray-400">{stats.operaciones}</div>
           <div className="text-sm text-gray-500 mt-1">Total operaciones</div>
         </div>
+      </div>
+
+      {/* Panel de Cotizaciones */}
+      <div className="card mb-8">
+        <h2 className="font-bold text-[#1a1a2e] mb-4">💱 Cotizaciones (tipos de cambio)</h2>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div>
+            <label className="label">💵 ARS Físico ($/USD)</label>
+            <input className="input" type="number" value={tcArsCash}
+              onChange={e => setTcArsCash(Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="label">📲 ARS TT ($/USD)</label>
+            <input className="input" type="number" value={tcArsTt}
+              onChange={e => setTcArsTt(Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="label">◎ USDT (USD x USDT)</label>
+            <input className="input" type="number" step="0.0001" value={tcUsdt}
+              onChange={e => setTcUsdt(Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="label">🇺🇸 Caja USA (USD x USD)</label>
+            <input className="input" type="number" step="0.0001" value={tcUsa}
+              onChange={e => setTcUsa(Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="label">🇪🇺 EUR (USD x EUR)</label>
+            <input className="input" type="number" step="0.0001" value={tcEur}
+              onChange={e => setTcEur(Number(e.target.value))} />
+          </div>
+        </div>
+        <p className="text-xs text-gray-400 mt-3">Se guardan automáticamente y se usan para el Total Global en USD.</p>
       </div>
 
       {/* Últimas ops */}
