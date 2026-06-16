@@ -14,8 +14,9 @@ const ORIGENES = [
 
 // Destino: operaciones que CONSUMEN pesos comprando moneda
 const DESTINOS = [
-  { value: 'compra_usd_transfer', label: 'Compra USD', resultado: 'usd' },
+  { value: 'compra_usd_transfer', label: 'Compra USD (TT)', resultado: 'usd' },
   { value: 'compra_usdt_pesos', label: 'Compra USDT', resultado: 'usdt' },
+  { value: 'bajada_ars_cash', label: 'Bajada ARS efectivo', resultado: 'ars' },
 ]
 
 interface Destino {
@@ -25,6 +26,7 @@ interface Destino {
   modo: 'pesos' | 'usd'
   monto_ars: string
   monto_usd: string
+  porcentaje: string
   estado: 'efectivo' | 'deuda'
 }
 
@@ -58,7 +60,10 @@ export default function MesaPage() {
   const montoVendido = origenModo === 'usd' ? (parseFloat(origenMonto) || 0) : (origenTCnum > 0 ? (parseFloat(origenPesos) || 0) / origenTCnum : 0)
   const totalPool = origenModo === 'usd' ? (parseFloat(origenMonto) || 0) * origenTCnum : (parseFloat(origenPesos) || 0)
 
+  const esBajadaArs = (d: Destino) => d.tipo === 'bajada_ars_cash'
+  const montoBajada = (d: Destino) => parseFloat(d.monto_ars) || 0  // pesos de la bajada
   const arsDestino = (d: Destino) => {
+    if (esBajadaArs(d)) return 0  // no consume el pool de la venta
     const tc = parseFloat(d.tipo_cambio) || 0
     if (d.modo === 'usd') return (parseFloat(d.monto_usd) || 0) * tc
     return parseFloat(d.monto_ars) || 0
@@ -72,7 +77,12 @@ export default function MesaPage() {
   const asignado = destinos.reduce((s, d) => s + arsDestino(d), 0)
   const restante = totalPool - asignado
 
-  const addDestino = () => setDestinos([...destinos, { cliente_id: '', tipo: 'compra_usd_transfer', tipo_cambio: '', modo: 'pesos', monto_ars: restante > 0 ? restante.toFixed(2) : '', monto_usd: '', estado: 'efectivo' }])
+  const comisionDestino = (d: Destino) => {
+    const base = esBajadaArs(d) ? montoBajada(d) : resultadoDestino(d)
+    return (base * (parseFloat(d.porcentaje) || 0)) / 100
+  }
+
+  const addDestino = () => setDestinos([...destinos, { cliente_id: '', tipo: 'compra_usd_transfer', tipo_cambio: '', modo: 'pesos', monto_ars: restante > 0 ? restante.toFixed(2) : '', monto_usd: '', porcentaje: '', estado: 'efectivo' }])
   const updateDestino = (i: number, patch: Partial<Destino>) => setDestinos(ds => ds.map((d, idx) => idx === i ? { ...d, ...patch } : d))
   const removeDestino = (i: number) => setDestinos(ds => ds.filter((_, idx) => idx !== i))
 
@@ -107,6 +117,34 @@ export default function MesaPage() {
 
     // 2. Destinos
     for (const d of destinos) {
+      // ── Bajada ARS efectivo: el cliente paga pesos (efectivo → sube caja ARS
+      // físico; deuda → me deben ARS). La comisión es ganancia en ARS. ──
+      if (esBajadaArs(d)) {
+        const monto = montoBajada(d)
+        if (monto <= 0) continue
+        const pct = parseFloat(d.porcentaje) || 0
+        const comision = (monto * pct) / 100
+        const neto = monto - comision  // la comisión descuenta del ARS; solo se registra
+        const descBase = `Bajada ARS cash${pct > 0 ? ` — comisión ${pct}% ($${comision.toFixed(0)})` : ''}`
+        if (d.estado === 'efectivo') {
+          // Entra plata → suma a la Caja ARS Físico el NETO (la comisión NO suma a
+          // ninguna caja, solo queda registrada en porcentaje/comision/descripción)
+          const { error: eb } = await supabase.from('operaciones').insert({
+            cliente_id: d.cliente_id || null, tipo: 'ajuste_ars_cash',
+            monto_pesos: neto, fecha, pagado: true,
+            porcentaje: pct > 0 ? pct : null, comision_usd: comision > 0 ? comision : null,
+            descripcion: descBase,
+          })
+          if (eb) { alert('Error bajada: ' + eb.message); setSaving(false); return }
+        } else if (d.cliente_id) {
+          // Queda como deuda → me deben ARS por el NETO
+          await supabase.from('saldo_calle').insert({
+            cliente_id: d.cliente_id, moneda: 'ARS', monto: neto,
+            direccion: 'deben', descripcion: descBase, fecha, activo: true,
+          })
+        }
+        continue
+      }
       const tc = parseFloat(d.tipo_cambio) || 0
       const ars = arsDestino(d)
       if (ars <= 0 || tc <= 0) continue
@@ -114,6 +152,8 @@ export default function MesaPage() {
       const esUsdt = d.tipo === 'compra_usdt_pesos'
       const pendiente = d.estado === 'deuda' ? 'me_deben' : null
 
+      const pct = parseFloat(d.porcentaje) || 0
+      const comision = (resultado * pct) / 100
       const payload: Record<string, unknown> = {
         cliente_id: d.cliente_id || null,
         tipo: d.tipo,
@@ -122,6 +162,8 @@ export default function MesaPage() {
         fecha,
         pendiente,
         pagado: d.estado === 'efectivo',
+        porcentaje: pct > 0 ? pct : null,
+        comision_usd: comision > 0 ? comision : null,
       }
       if (esUsdt) payload.monto_usdt = resultado
       else payload.monto_usd = resultado
@@ -245,7 +287,7 @@ export default function MesaPage() {
               <div className="text-xs font-bold text-orange-500 uppercase tracking-wide">Compra #{i + 1}</div>
               <button onClick={() => removeDestino(i)} className="text-red-400 hover:text-red-600 text-xs">✕ Quitar</button>
             </div>
-            <div className="grid grid-cols-6 gap-3 items-end">
+            <div className="grid grid-cols-7 gap-3 items-end">
               <div>
                 <label className="label">Cliente</label>
                 <select className="input" value={d.cliente_id} onChange={e => updateDestino(i, { cliente_id: e.target.value })}>
@@ -259,37 +301,65 @@ export default function MesaPage() {
                   {DESTINOS.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="label">Cargar por</label>
-                <select className="input" value={d.modo} onChange={e => updateDestino(i, { modo: e.target.value as 'pesos'|'usd' })}>
-                  <option value="pesos">Pesos</option>
-                  <option value="usd">USD/USDT</option>
-                </select>
-              </div>
-              <div>
-                <label className="label">T/C</label>
-                <input className="input" type="number" step="0.01" placeholder="1440" value={d.tipo_cambio} onChange={e => updateDestino(i, { tipo_cambio: e.target.value })} />
-              </div>
-              {d.modo === 'pesos' ? (
-                <div>
-                  <label className="label">Pesos usados</label>
-                  <input className="input" type="number" step="0.01" value={d.monto_ars} onChange={e => updateDestino(i, { monto_ars: e.target.value })} />
-                </div>
+              {esBajadaArs(d) ? (
+                <>
+                  <div>
+                    <label className="label">Comisión %</label>
+                    <input className="input" type="number" step="0.01" placeholder="0" value={d.porcentaje} onChange={e => updateDestino(i, { porcentaje: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label">Pesos</label>
+                    <input className="input" type="number" step="0.01" placeholder="500000" value={d.monto_ars} onChange={e => updateDestino(i, { monto_ars: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label">Neto ARS (− com.)</label>
+                    <div className="input bg-gray-50 font-mono text-sm flex items-center">${f(montoBajada(d) - comisionDestino(d), 0)}</div>
+                  </div>
+                </>
               ) : (
-                <div>
-                  <label className="label">{d.tipo === 'compra_usdt_pesos' ? 'USDT' : 'USD'} a comprar</label>
-                  <input className="input" type="number" step="0.01" value={d.monto_usd} onChange={e => updateDestino(i, { monto_usd: e.target.value })} />
-                </div>
+                <>
+                  <div>
+                    <label className="label">Cargar por</label>
+                    <select className="input" value={d.modo} onChange={e => updateDestino(i, { modo: e.target.value as 'pesos'|'usd' })}>
+                      <option value="pesos">Pesos</option>
+                      <option value="usd">USD/USDT</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">T/C</label>
+                    <input className="input" type="number" step="0.01" placeholder="1440" value={d.tipo_cambio} onChange={e => updateDestino(i, { tipo_cambio: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label">Comisión %</label>
+                    <input className="input" type="number" step="0.01" placeholder="0" value={d.porcentaje} onChange={e => updateDestino(i, { porcentaje: e.target.value })} />
+                  </div>
+                  {d.modo === 'pesos' ? (
+                    <div>
+                      <label className="label">Pesos usados</label>
+                      <input className="input" type="number" step="0.01" value={d.monto_ars} onChange={e => updateDestino(i, { monto_ars: e.target.value })} />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="label">{d.tipo === 'compra_usdt_pesos' ? 'USDT' : 'USD'} a comprar</label>
+                      <input className="input" type="number" step="0.01" value={d.monto_usd} onChange={e => updateDestino(i, { monto_usd: e.target.value })} />
+                    </div>
+                  )}
+                  <div>
+                    <label className="label">{d.modo === 'pesos' ? 'Resultado' : 'Pesos usados'}</label>
+                    <div className="input bg-gray-50 font-mono text-sm flex items-center">
+                      {d.modo === 'pesos'
+                        ? `${d.tipo === 'compra_usdt_pesos' ? '◎' : '$'}${f(resultadoDestino(d))}`
+                        : `$${f(arsDestino(d), 0)}`}
+                    </div>
+                  </div>
+                </>
               )}
-              <div>
-                <label className="label">{d.modo === 'pesos' ? 'Resultado' : 'Pesos usados'}</label>
-                <div className="input bg-gray-50 font-mono text-sm flex items-center">
-                  {d.modo === 'pesos'
-                    ? `${d.tipo === 'compra_usdt_pesos' ? '◎' : '$'}${f(resultadoDestino(d))}`
-                    : `$${f(arsDestino(d), 0)}`}
-                </div>
-              </div>
             </div>
+            {(parseFloat(d.porcentaje) || 0) > 0 && (
+              <div className="mt-2 text-xs text-gray-500">
+                Comisión {d.porcentaje}%: <span className="font-bold text-[#1a1a2e]">{esBajadaArs(d) ? '$' : (d.tipo === 'compra_usdt_pesos' ? '◎' : 'US$')}{f(comisionDestino(d))}</span>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2 mt-3">
               <button type="button" onClick={() => updateDestino(i, { estado: 'efectivo' })}
                 className={`py-2 rounded-lg text-sm font-bold transition-colors ${d.estado === 'efectivo' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
