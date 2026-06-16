@@ -103,6 +103,16 @@ export function computeDelta(op: Op): StockDelta {
     return d
   }
 
+  // ── Subida de cable ──
+  // Recibo el monto completo acá (USD/cash) y de la cuenta USA sale solo el
+  // neto (monto − comisión). La comisión queda como ganancia.
+  if (tipo === 'subida_cable') {
+    const cash = usd - (op.comision_usd || 0)
+    if (op.pendiente !== 'me_deben') d.usd += usd          // me entregan acá
+    if (op.pendiente !== 'le_debo')  d.usa -= cash          // sale el neto de la cuenta USA
+    return d
+  }
+
   // ── Operaciones de trading (con patas) ──
   const legs = tradeLegs(op)
   if (legs) {

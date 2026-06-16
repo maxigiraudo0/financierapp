@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSheetsClient } from '@/lib/google'
 import { supabase } from '@/lib/supabase'
+import { recalcPendienteCalle } from '@/app/api/acreditar-ingreso/route'
 
 const DEFAULT_SHEET_ID = '1I4a2J_xJyP5kJQgOwDEvFDGzmZVbOfzz4MRGX6F5sfY'
 
@@ -97,8 +98,9 @@ export async function POST(req: NextRequest) {
 
     // 5. Parsear movimientos: ingresos col0-3, egresos col11-14 (con TC)
     const filas: Record<string, unknown>[] = []
-    const deudaPorCliente = new Map<string, number>()
     const pendientes: Record<string, unknown>[] = []
+    const ingresosPend: Record<string, unknown>[] = []
+    const hoyStr = new Date().toISOString().split('T')[0]
     for (let i = 1; i < rows.length; i++) {
       const c = rows[i] || []
       if (fechaRe.test(String(c[0] || ''))) {
@@ -109,6 +111,16 @@ export async function POST(req: NextRequest) {
           filas.push({ tipo: 'ajuste_ars_tt', monto_pesos: monto, cuenta_pesos_id,
             cliente_id: cliId,
             descripcion: `IN: ${c[2] || cli}`.trim(), fecha: parseFecha(c[0]), pagado: true, origen: 'sheet' })
+          // Ingreso sin cliente matcheado → bandeja de "pendientes de acreditar".
+          // El ticket igual suma al saldo (la plata entró); solo queda por
+          // acreditarlo a un cliente (generará "le debo ARS").
+          if (!cliId) {
+            ingresosPend.push({
+              cuenta_pesos_id, fecha: parseFecha(c[0]),
+              monto_ars: monto, nombre_ticket: (String(c[2] || c[3] || '').trim()) || '(sin nombre)',
+              procesado: false,
+            })
+          }
         }
       }
       if (fechaRe.test(String(c[11] || ''))) {
@@ -119,33 +131,20 @@ export async function POST(req: NextRequest) {
           filas.push({ tipo: 'gasto_ars_tt', monto_pesos: monto, cuenta_pesos_id,
             cliente_id: cliId,
             descripcion: `OUT: ${cli}`.trim(), fecha: parseFecha(c[11]), pagado: true, origen: 'sheet' })
-          // TC en col 14 → USD = ARS / TC → deuda "le debo" al cliente
-          const tc = parseMonto(c[14])
-          if (cliId && tc > 0) {
-            // Matchea cliente y tiene TC → deuda automática
-            deudaPorCliente.set(cliId, (deudaPorCliente.get(cliId) || 0) + monto / tc)
-          } else {
-            // No matchea o falta TC → a la bandeja de pendientes
+          // Solo los egresos de HOY van a la bandeja de pendientes (para asignar
+          // manualmente). Los de días anteriores NO se cargan ni tocan la calle:
+          // la calle solo lleva lo que se asigna a mano.
+          const fEgreso = parseFecha(c[11])
+          if (fEgreso === hoyStr) {
+            const tc = parseMonto(c[14])
             pendientes.push({
-              cuenta_pesos_id, fecha: parseFecha(c[11]),
+              cuenta_pesos_id, fecha: fEgreso,
               monto_ars: monto, cliente_sheet: cli.trim() || '(sin nombre)',
               tc: tc > 0 ? tc : null, procesado: false,
             })
           }
         }
       }
-    }
-
-    const hoy = new Date().toISOString().split('T')[0]
-    const calleRows: Record<string, unknown>[] = []
-    // Egresos → me deben USD (el cliente te debe los USD que compró)
-    for (const [cliId, usd] of deudaPorCliente) {
-      if (usd <= 0.001) continue
-      calleRows.push({
-        cliente_id: cliId, moneda: 'USD', monto: Math.round(usd * 100) / 100,
-        direccion: 'deben', descripcion: `Compra USD reca (${title})`,
-        fecha: hoy, activo: true, origen: 'sheet', ref_cuenta: cuenta_pesos_id,
-      })
     }
 
     // 6. Reemplazar import previo
@@ -155,17 +154,52 @@ export async function POST(req: NextRequest) {
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // 6b. Reemplazar deudas de calle generadas desde el sheet para esta reca
+    // 6b. Limpiar cualquier deuda de calle automática vieja de esta reca
+    // (ya NO se generan nuevas: la calle solo lleva lo cargado a mano)
     await supabase.from('saldo_calle').delete().eq('ref_cuenta', cuenta_pesos_id).eq('origen', 'sheet')
-    if (calleRows.length > 0) {
-      await supabase.from('saldo_calle').insert(calleRows)
+
+    // 6c. Refrescar bandeja de egresos pendientes (no procesados) de esta reca.
+    // No re-agrega los que ya se asignaron (procesado=true sobreviven y se saltan).
+    {
+      const { data: yaAsig } = await supabase.from('egresos_pendientes')
+        .select('fecha, monto_ars, cliente_sheet').eq('cuenta_pesos_id', cuenta_pesos_id).eq('procesado', true)
+      const asigSet = new Set((yaAsig || []).map(a => `${a.fecha}|${a.monto_ars}|${a.cliente_sheet}`))
+      await supabase.from('egresos_pendientes').delete().eq('cuenta_pesos_id', cuenta_pesos_id).eq('procesado', false)
+      const nuevosEg = pendientes.filter(p => !asigSet.has(`${p.fecha}|${p.monto_ars}|${p.cliente_sheet}`))
+      if (nuevosEg.length > 0) {
+        await supabase.from('egresos_pendientes').insert(nuevosEg)
+      }
     }
 
-    // 6c. Refrescar bandeja de egresos pendientes (no procesados) de esta reca
-    await supabase.from('egresos_pendientes').delete().eq('cuenta_pesos_id', cuenta_pesos_id).eq('procesado', false)
-    if (pendientes.length > 0) {
-      await supabase.from('egresos_pendientes').insert(pendientes)
-    }
+    // 6d. Refrescar bandeja de ingresos pendientes de acreditar (no procesados).
+    // No re-agrega los que ya se acreditaron (procesado=true sobreviven).
+    try {
+      const { data: yaAcred } = await supabase.from('ingresos_pendientes')
+        .select('fecha, monto_ars, nombre_ticket').eq('cuenta_pesos_id', cuenta_pesos_id).eq('procesado', true)
+      const acredSet = new Set((yaAcred || []).map(a => `${a.fecha}|${a.monto_ars}|${a.nombre_ticket}`))
+      await supabase.from('ingresos_pendientes').delete().eq('cuenta_pesos_id', cuenta_pesos_id).eq('procesado', false)
+      const nuevos = ingresosPend.filter(p => !acredSet.has(`${p.fecha}|${p.monto_ars}|${p.nombre_ticket}`))
+      if (nuevos.length > 0) {
+        await supabase.from('ingresos_pendientes').insert(nuevos)
+      }
+      // Refrescar la deuda general "pendiente de acreditar" en la calle.
+      // Tomamos la celda "NO ACREDITADOS TOTAL/TOT" del sheet (fuente de verdad,
+      // incluye meses anteriores). Si no se encuentra, suma los tickets del mes.
+      let noAcredTotal: number | undefined
+      for (const row of rows) {
+        const idx = (row || []).findIndex(c => /^NO ACREDITADOS? (TOTAL|TOT)\b/i.test(String(c).trim()))
+        if (idx >= 0) {
+          for (let k = idx + 1; k < row.length; k++) {
+            const n = parseMonto(row[k])
+            if (n !== 0) { noAcredTotal = n; break }
+          }
+          break
+        }
+      }
+      // Solo si la reca tiene tickets sin acreditar este mes usamos el total del
+      // sheet; si no, dejamos la deuda en 0 (evita valores espurios de celdas sueltas).
+      await recalcPendienteCalle(cuenta_pesos_id, ingresosPend.length > 0 ? noAcredTotal : 0)
+    } catch { /* tabla puede no existir todavía */ }
 
     // 7. Ajustar saldo_inicial para que el saldo de la app = J16 oficial
     const ingresos = filas.filter(f => f.tipo === 'ajuste_ars_tt').reduce((s, f) => s + (f.monto_pesos as number), 0)
@@ -174,7 +208,7 @@ export async function POST(req: NextRequest) {
     const saldoInicial = saldoOficial - netoMovs  // el resto (enviado vs recibido, no acreditados, etc.)
     await supabase.from('cuentas_pesos_tt').update({ saldo_inicial: saldoInicial, sheet_gid: gidUsado, sheet_id: SHEET_ID }).eq('id', cuenta_pesos_id)
 
-    return NextResponse.json({ ok: true, solapa: title, importadas: filas.length, ingresos, egresos, saldo_oficial: saldoOficial, deudas_usd: deudaPorCliente.size, pendientes: pendientes.length })
+    return NextResponse.json({ ok: true, solapa: title, importadas: filas.length, ingresos, egresos, saldo_oficial: saldoOficial, pendientes: pendientes.length, ingresos_pendientes: ingresosPend.length })
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message || String(e) }, { status: 500 })
   }

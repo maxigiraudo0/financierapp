@@ -88,6 +88,33 @@ export default function CuentasPage() {
     }
   }
 
+  // Bandeja de ingresos pendientes de acreditar
+  interface IngPend { id: string; cuenta_pesos_id: string; fecha: string; monto_ars: number; nombre_ticket: string }
+  const [ingPendientes, setIngPendientes] = useState<IngPend[]>([])
+  const [acredForm, setAcredForm] = useState<Record<string, string>>({})
+
+  const loadIngresosPendientes = async () => {
+    const { data } = await supabase.from('ingresos_pendientes').select('*').eq('procesado', false).order('fecha')
+    if (data) {
+      setIngPendientes(data as IngPend[])
+      const f: Record<string, string> = {}
+      ;(data as IngPend[]).forEach(p => { f[p.id] = '' })
+      setAcredForm(f)
+    }
+  }
+
+  const acreditarIngreso = async (p: IngPend) => {
+    const cliente_id = acredForm[p.id]
+    if (!cliente_id) { alert('Elegí cliente'); return }
+    const res = await fetch('/api/acreditar-ingreso', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pendiente_id: p.id, cliente_id }),
+    })
+    const json = await res.json()
+    if (!res.ok) { alert('Error: ' + json.error); return }
+    await loadIngresosPendientes()
+  }
+
   const asignarEgreso = async (p: Pend) => {
     const form = asignForm[p.id]
     if (!form?.cliente_id) { alert('Elegí cliente'); return }
@@ -215,7 +242,7 @@ export default function CuentasPage() {
     const [{ data: usa }, { data: pesos }, { data: ops }] = await Promise.all([
       supabase.from('cuentas_usa').select('*').order('nombre'),
       supabase.from('cuentas_pesos_tt').select('*').order('nombre'),
-      supabase.from('operaciones').select('cuenta_usa_id, cuenta_pesos_id, tipo, monto_usd, monto_pesos, costo_wire, wire_absorbe').or('tipo.in.(bajada_cable,bajada_cable_pesos,bajada_cable_pesos_tt,subida_cable,subida_cable_usdt),cuenta_pesos_id.not.is.null'),
+      supabase.from('operaciones').select('cuenta_usa_id, cuenta_pesos_id, tipo, monto_usd, monto_pesos, comision_usd, costo_wire, wire_absorbe').or('tipo.in.(bajada_cable,bajada_cable_pesos,bajada_cable_pesos_tt,subida_cable,subida_cable_usdt),cuenta_pesos_id.not.is.null'),
     ])
     if (usa) setCuentasUSA(usa)
     if (pesos) setCuentasPesos(pesos)
@@ -225,7 +252,11 @@ export default function CuentasPage() {
     if (ops) ops.forEach(o => {
       // USA
       if (o.cuenta_usa_id) {
-        let delta = (o.tipo === 'bajada_cable' || o.tipo === 'bajada_cable_pesos' || o.tipo === 'bajada_cable_pesos_tt') ? (o.monto_usd || 0) : -(o.monto_usd || 0)
+        let delta = (o.tipo === 'bajada_cable' || o.tipo === 'bajada_cable_pesos' || o.tipo === 'bajada_cable_pesos_tt')
+          ? (o.monto_usd || 0)
+          : (o.tipo === 'subida_cable'
+              ? -((o.monto_usd || 0) - (o.comision_usd || 0))   // sale el neto (monto − comisión)
+              : -(o.monto_usd || 0))
         if (o.tipo === 'subida_cable_usdt' && o.wire_absorbe === 'financiera' && o.costo_wire) delta -= o.costo_wire
         movs[o.cuenta_usa_id] = (movs[o.cuenta_usa_id] || 0) + delta
       }
@@ -241,6 +272,7 @@ export default function CuentasPage() {
     setMovsPorCuenta(movs)
     setMovsPorPesos(movsP)
     loadPendientes()
+    loadIngresosPendientes()
     const { data: cls } = await supabase.from('clientes').select('id, nombre').eq('activo', true).order('nombre')
     if (cls) setClientesList(cls)
   }
