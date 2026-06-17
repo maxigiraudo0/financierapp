@@ -109,28 +109,28 @@ export default function AdminDashboard() {
         comision_usd: Number((o as { comision_usd?: number | null }).comision_usd) || null,
       }))) : { ...ZERO_DELTA }
 
-      // Caja ARS TT = SOLO los saldos de las recaudadoras (sus movimientos con
-      // cuenta asignada). Las operaciones de Mesa mueven pesos que ya están dentro
-      // de las recaudadoras, así que NO se cuentan aparte (evita duplicar).
-      const ttDeltaRecas = (ops || []).reduce((s, o) => {
-        if (!(o as { cuenta_pesos_id?: string | null }).cuenta_pesos_id) return s
-        return s + computeDelta({
-          tipo: o.tipo,
-          monto_usd: Number(o.monto_usd) || 0,
-          monto_usdt: Number(o.monto_usdt) || 0,
-          monto_pesos: Number(o.monto_pesos) || 0,
-          monto_eur: Number(o.monto_eur) || 0,
-          medio: (o as { medio?: string | null }).medio,
-          pendiente: (o as { pendiente?: string | null }).pendiente,
-        }).ars_tt
-      }, 0)
+      // Caja ARS TT = SALDO FINAL de cada recaudadora = saldo_inicial + TODOS sus
+      // movimientos (archivados o no). No depende del cierre/lote ni de la Mesa
+      // (esos pesos ya están dentro de las recaudadoras).
+      const { data: recaOps } = await supabase.from('operaciones')
+        .select('tipo, monto_usd, monto_usdt, monto_pesos, monto_eur, medio, pendiente')
+        .not('cuenta_pesos_id', 'is', null)
+      const ttDeltaRecas = (recaOps || []).reduce((s, o) => s + computeDelta({
+        tipo: o.tipo,
+        monto_usd: Number(o.monto_usd) || 0,
+        monto_usdt: Number(o.monto_usdt) || 0,
+        monto_pesos: Number(o.monto_pesos) || 0,
+        monto_eur: Number(o.monto_eur) || 0,
+        medio: (o as { medio?: string | null }).medio,
+        pendiente: (o as { pendiente?: string | null }).pendiente,
+      }).ars_tt, 0)
 
       setStock({
         usd:      base.usd      + deltas.usd,
         usdt:     base.usdt     + deltas.usdt,
         eur:      base.eur      + deltas.eur,
         ars_cash: base.ars_cash + deltas.ars_cash,
-        ars_tt:   base.ars_tt   + ttDeltaRecas,
+        ars_tt:   ttInicial     + ttDeltaRecas,
         usa:      base.usa      + deltas.usa,
         base_fecha: ultimoCierre?.fecha || null,
       })
