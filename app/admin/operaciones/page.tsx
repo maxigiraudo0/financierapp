@@ -41,6 +41,14 @@ const MEDIOS = [
   { value: 'cuenta_usa',   label: '🇺🇸 Cuenta USA' },
 ]
 
+// Medios válidos según la moneda de la deuda (evita pagar una deuda ARS con USD, etc.)
+const MEDIOS_POR_MONEDA: Record<string, string[]> = {
+  USD:  ['usd_cash', 'usd_transfer', 'cuenta_usa'],
+  ARS:  ['pesos_cash', 'pesos_tt'],
+  USDT: ['usdt'],
+  EUR:  ['eur'],
+}
+
 export default function OperacionesPage() {
   const [operaciones, setOperaciones] = useState<Operacion[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -90,7 +98,7 @@ export default function OperacionesPage() {
 
   // Cable por USDT: autocompletar USDT recibido = cable enviado (editable)
   useEffect(() => {
-    if (form.tipo === 'subida_cable_usdt' && form.monto_usd) {
+    if ((form.tipo === 'subida_cable_usdt' || form.tipo === 'bajada_cable_usdt') && form.monto_usd) {
       setForm(f => ({ ...f, monto_usdt: f.monto_usd }))
     }
   }, [form.monto_usd, form.tipo])
@@ -102,6 +110,18 @@ export default function OperacionesPage() {
       setForm(f => ({ ...f, comision_usd: comision.toFixed(2) }))
     }
   }, [form.monto_usd, form.porcentaje, form.tipo])
+
+  // En cobros/pagos de deuda: forzar un medio acorde a la moneda de la deuda
+  // (ej: deuda ARS → pesos; nunca caja USD)
+  useEffect(() => {
+    const esD = form.tipo.startsWith('cobro_deuda_') || form.tipo.startsWith('pago_deuda_')
+    if (!esD) return
+    const moneda = form.tipo.split('_')[2].toUpperCase()
+    const validos = MEDIOS_POR_MONEDA[moneda] || []
+    if (validos.length && !validos.includes(form.medio)) {
+      setForm(f => ({ ...f, medio: validos[0] }))
+    }
+  }, [form.tipo, form.medio])
 
   const loadAll = async () => {
     const [{ data: ops, error: opsError }, { data: cls }, { data: cusas }, { data: cpesos }] = await Promise.all([
@@ -187,8 +207,8 @@ export default function OperacionesPage() {
       cuenta_usa_id: form.cuenta_usa_id || null,
       cuenta_pesos_id: form.cuenta_pesos_id || null,
       medio: esDeuda ? form.medio : null,
-      costo_wire: esCableUsdt ? (parseFloat(form.costo_wire) || null) : null,
-      wire_absorbe: esCableUsdt ? form.wire_absorbe : null,
+      costo_wire: form.tipo === 'subida_cable_usdt' ? (parseFloat(form.costo_wire) || null) : null,
+      wire_absorbe: form.tipo === 'subida_cable_usdt' ? form.wire_absorbe : null,
       pendiente: form.tipo.startsWith('prestamo_')
         ? (form.pagado ? null : 'no_entregado')
         : (esDeuda ? null : (form.pendiente === 'ok' ? null : form.pendiente)),
@@ -362,15 +382,16 @@ export default function OperacionesPage() {
   const esPrestamo = form.tipo.startsWith('prestamo_')
   const esCobro = form.tipo.startsWith('cobro_deuda_')
   const monedaDeuda = esDeuda ? form.tipo.split('_')[2].toUpperCase() : ''
+  const mediosValidos = esDeuda ? MEDIOS.filter(m => (MEDIOS_POR_MONEDA[monedaDeuda] || []).includes(m.value)) : MEDIOS
   const usaPorcentaje = USES_PORCENTAJE.includes(form.tipo)
-  const usaCuentaUSA = ['bajada_cable', 'bajada_cable_pesos', 'bajada_cable_pesos_tt', 'subida_cable', 'subida_cable_usdt', 'saldo_inicial_cuenta_usa', 'ajuste_usa', 'gasto_usa'].includes(form.tipo)
-  const esCableUsdt = form.tipo === 'subida_cable_usdt'
+  const usaCuentaUSA = ['bajada_cable', 'bajada_cable_pesos', 'bajada_cable_pesos_tt', 'subida_cable', 'subida_cable_usdt', 'bajada_cable_usdt', 'saldo_inicial_cuenta_usa', 'ajuste_usa', 'gasto_usa'].includes(form.tipo)
+  const esCableUsdt = form.tipo === 'subida_cable_usdt' || form.tipo === 'bajada_cable_usdt'
   const esCablePesos = form.tipo === 'bajada_cable_pesos' || form.tipo === 'bajada_cable_pesos_tt'
   const usaCuentaPesos = ['compra_usdt_pesos', 'venta_usdt_pesos', 'compra_usd_transfer', 'venta_usd_transfer', 'compra_eur_ars', 'venta_eur_ars', 'saldo_inicial_pesos_tt', 'saldo_inicial_pesos_cash'].includes(form.tipo)
-  const usaUSDT = ['compra_usdt_cash', 'venta_usdt_cash', 'compra_usdt_pesos', 'venta_usdt_pesos', 'saldo_inicial_usdt', 'subida_cable_usdt', 'gasto_usdt', 'ajuste_usdt', 'prestamo_usdt'].includes(form.tipo)
+  const usaUSDT = ['compra_usdt_cash', 'venta_usdt_cash', 'compra_usdt_pesos', 'venta_usdt_pesos', 'saldo_inicial_usdt', 'subida_cable_usdt', 'bajada_cable_usdt', 'gasto_usdt', 'ajuste_usdt', 'prestamo_usdt'].includes(form.tipo)
   const usaPesos = ['compra_usdt_pesos', 'venta_usdt_pesos', 'compra_usd_transfer', 'venta_usd_transfer', 'compra_eur_ars', 'venta_eur_ars', 'saldo_inicial_pesos_tt', 'saldo_inicial_pesos_cash', 'bajada_cable_pesos', 'bajada_cable_pesos_tt', 'gasto_ars_cash', 'gasto_ars_tt', 'ajuste_ars_cash', 'ajuste_ars_tt', 'prestamo_ars', 'prestamo_ars_tt'].includes(form.tipo)
   const usaEUR = ['compra_eur_ars', 'venta_eur_ars', 'compra_eur_usd', 'venta_eur_usd', 'saldo_inicial_eur', 'ajuste_eur'].includes(form.tipo)
-  const usaUSD = ['compra_usd_cash', 'venta_usd_cash', 'compra_usd_transfer', 'venta_usd_transfer', 'bajada_cable', 'bajada_cable_pesos', 'bajada_cable_pesos_tt', 'subida_cable', 'subida_cable_usdt', 'compra_usdt_cash', 'venta_usdt_cash', 'compra_eur_usd', 'venta_eur_usd', 'saldo_inicial_usd', 'saldo_inicial_cuenta_usa', 'ajuste_saldo', 'gasto_usd', 'gasto_usa', 'ajuste_usd', 'ajuste_usa', 'prestamo_usd'].includes(form.tipo)
+  const usaUSD = ['compra_usd_cash', 'venta_usd_cash', 'compra_usd_transfer', 'venta_usd_transfer', 'bajada_cable', 'bajada_cable_pesos', 'bajada_cable_pesos_tt', 'subida_cable', 'subida_cable_usdt', 'bajada_cable_usdt', 'compra_usdt_cash', 'venta_usdt_cash', 'compra_eur_usd', 'venta_eur_usd', 'saldo_inicial_usd', 'saldo_inicial_cuenta_usa', 'ajuste_saldo', 'gasto_usd', 'gasto_usa', 'ajuste_usd', 'ajuste_usa', 'prestamo_usd'].includes(form.tipo)
 
   const filtered = operaciones.filter(o => {
     if (filterCliente && !o.clientes?.nombre.toLowerCase().includes(filterCliente.toLowerCase())) return false
@@ -457,7 +478,7 @@ export default function OperacionesPage() {
                       <div>
                         <label className="label">{esCobro ? '¿Con qué te pagó?' : '¿Con qué le pagaste?'}</label>
                         <select className="input" value={form.medio} onChange={e => setForm({...form, medio: e.target.value})}>
-                          {MEDIOS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                          {mediosValidos.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                         </select>
                       </div>
                     </div>
@@ -473,13 +494,19 @@ export default function OperacionesPage() {
               {/* Montos (operaciones normales) */}
               {!esDeuda && (
               <div className="grid grid-cols-2 gap-3">
+                {usaUSDT && form.tipo === 'bajada_cable_usdt' && (
+                  <div>
+                    <label className="label">USDT enviado</label>
+                    <input className="input" type="number" step="0.0001" placeholder="0.0000" value={form.monto_usdt} onChange={e => setForm({...form, monto_usdt: e.target.value})} />
+                  </div>
+                )}
                 {usaUSD && (
                   <div>
-                    <label className="label">{esCableUsdt ? 'Cable enviado (USD)' : (form.tipo === 'bajada_cable' || esCablePesos) ? 'USD recibido en cuenta USA' : 'Monto USD'}</label>
+                    <label className="label">{form.tipo === 'bajada_cable_usdt' ? 'Cable recibido (USD)' : esCableUsdt ? 'Cable enviado (USD)' : (form.tipo === 'bajada_cable' || esCablePesos) ? 'USD recibido en cuenta USA' : 'Monto USD'}</label>
                     <input className="input" type="number" step="0.01" placeholder="0.00" value={form.monto_usd} onChange={e => setForm({...form, monto_usd: e.target.value})} />
                   </div>
                 )}
-                {usaUSDT && (
+                {usaUSDT && form.tipo !== 'bajada_cable_usdt' && (
                   <div>
                     <label className="label">{esCableUsdt ? 'USDT recibido' : 'Monto USDT'}</label>
                     <input className="input" type="number" step="0.0001" placeholder="0.0000" value={form.monto_usdt} onChange={e => setForm({...form, monto_usdt: e.target.value})} />
@@ -504,8 +531,8 @@ export default function OperacionesPage() {
               </div>
               )}
 
-              {/* Costo del wire (solo cable USDT) */}
-              {esCableUsdt && (
+              {/* Costo del wire (solo subida de cable por USDT) */}
+              {form.tipo === 'subida_cable_usdt' && (
                 <div className="bg-blue-50 p-4 rounded-xl grid grid-cols-2 gap-3">
                   <div>
                     <label className="label">Costo del wire (USD)</label>
@@ -546,7 +573,7 @@ export default function OperacionesPage() {
               )}
 
               {/* Tipo de cambio */}
-              {!esDeuda && !['saldo_inicial_usd','saldo_inicial_usdt','saldo_inicial_cuenta_usa','saldo_inicial_eur','saldo_inicial_pesos_tt','saldo_inicial_pesos_cash'].includes(form.tipo) && (
+              {!esDeuda && !['saldo_inicial_usd','saldo_inicial_usdt','saldo_inicial_cuenta_usa','saldo_inicial_eur','saldo_inicial_pesos_tt','saldo_inicial_pesos_cash','bajada_cable_usdt'].includes(form.tipo) && (
                 <div>
                   <label className="label">Tipo de cambio</label>
                   <input className="input" type="number" step="0.01" placeholder="Ej: 1350.00" value={form.tipo_cambio} onChange={e => setForm({...form, tipo_cambio: e.target.value})} />

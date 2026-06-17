@@ -66,6 +66,27 @@ export async function POST(req: NextRequest) {
     // Fila destino
     const d = new Date((fecha || new Date().toISOString().split('T')[0]) + 'T12:00:00')
     const fechaTxt = `${d.getDate()}/${d.getMonth() + 1}`
+
+    // Anti-duplicado: si ya hay una entrega con MISMA fecha y MISMO monto (cargada
+    // a mano en el sheet), no la volvemos a escribir.
+    const parseNum = (v: unknown) => {
+      const t = String(v ?? '').replace(/[$\s]/g, '').replace(/,/g, '')
+      const n = parseFloat(t); return isNaN(n) ? NaN : n
+    }
+    const diaMes = (v: unknown) => {
+      const m = String(v ?? '').match(/(\d{1,2})\D+(\d{1,2})/)
+      return m ? `${+m[1]}/${+m[2]}` : ''
+    }
+    const objetivo = Number(monto_usd)
+    for (let r = startRow; r <= Math.min(endRow + 1, 200); r++) {
+      const row = grid[r - 1] || []
+      const fOk = diaMes(row[fechaCol]) === fechaTxt
+      const mCell = parseNum(row[montoCol])
+      if (fOk && !isNaN(mCell) && Math.abs(mCell - objetivo) < 1) {
+        return NextResponse.json({ ok: true, skip: 'ya cargada manualmente en el sheet', fila: r, monto: objetivo })
+      }
+    }
+
     let fila = filaFija || -1
     if (!filaFija) {
       for (let r = startRow; r <= endRow + 1 && r < 200; r++) {

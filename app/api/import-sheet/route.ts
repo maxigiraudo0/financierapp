@@ -131,11 +131,12 @@ export async function POST(req: NextRequest) {
           filas.push({ tipo: 'gasto_ars_tt', monto_pesos: monto, cuenta_pesos_id,
             cliente_id: cliId,
             descripcion: `OUT: ${cli}`.trim(), fecha: parseFecha(c[11]), pagado: true, origen: 'sheet' })
-          // Solo los egresos de HOY van a la bandeja de pendientes (para asignar
-          // manualmente). Los de días anteriores NO se cargan ni tocan la calle:
-          // la calle solo lleva lo que se asigna a mano.
+          // Solo van a la bandeja de pendientes los egresos de HOY que NO tienen
+          // un cliente ya asignado en el sheet (cargado a mano). Si ya tiene cliente
+          // matcheado, queda manejado en el sheet de ese cliente → no lo mostramos
+          // como pendiente ni tocamos la calle.
           const fEgreso = parseFecha(c[11])
-          if (fEgreso === hoyStr) {
+          if (fEgreso === hoyStr && !cliId) {
             const tc = parseMonto(c[14])
             pendientes.push({
               cuenta_pesos_id, fecha: fEgreso,
@@ -183,11 +184,14 @@ export async function POST(req: NextRequest) {
         await supabase.from('ingresos_pendientes').insert(nuevos)
       }
       // Refrescar la deuda general "pendiente de acreditar" en la calle.
-      // Tomamos la celda "NO ACREDITADOS TOTAL/TOT" del sheet (fuente de verdad,
-      // incluye meses anteriores). Si no se encuentra, suma los tickets del mes.
+      // Tomamos SOLO la celda "NO ACREDITADOS <mes actual>" (junio), NO la TOTAL
+      // (que incluye meses anteriores como mayo).
       let noAcredTotal: number | undefined
       for (const row of rows) {
-        const idx = (row || []).findIndex(c => /^NO ACREDITADOS? (TOTAL|TOT)\b/i.test(String(c).trim()))
+        const idx = (row || []).findIndex(c => {
+          const t = String(c).trim().toUpperCase()
+          return t === 'NO ACREDITADOS' || t === `NO ACREDITADOS ${mesActual}`
+        })
         if (idx >= 0) {
           for (let k = idx + 1; k < row.length; k++) {
             const n = parseMonto(row[k])
@@ -196,9 +200,10 @@ export async function POST(req: NextRequest) {
           break
         }
       }
-      // Solo si la reca tiene tickets sin acreditar este mes usamos el total del
-      // sheet; si no, dejamos la deuda en 0 (evita valores espurios de celdas sueltas).
-      await recalcPendienteCalle(cuenta_pesos_id, ingresosPend.length > 0 ? noAcredTotal : 0)
+      // Usamos el total "NO ACREDITADOS" del sheet (umbral chico para evitar
+      // celdas espurias sueltas de $5, etc.).
+      const naMonto = (noAcredTotal && noAcredTotal > 100) ? noAcredTotal : 0
+      await recalcPendienteCalle(cuenta_pesos_id, naMonto)
     } catch { /* tabla puede no existir todavía */ }
 
     // 7. Ajustar saldo_inicial para que el saldo de la app = J16 oficial

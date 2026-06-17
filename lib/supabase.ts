@@ -11,7 +11,7 @@ export type OperationType =
   | 'compra_usd_cash' | 'venta_usd_cash'
   | 'compra_usd_transfer' | 'venta_usd_transfer'
   // Cable (%)
-  | 'bajada_cable' | 'bajada_cable_pesos' | 'bajada_cable_pesos_tt' | 'subida_cable' | 'subida_cable_usdt'
+  | 'bajada_cable' | 'bajada_cable_pesos' | 'bajada_cable_pesos_tt' | 'subida_cable' | 'subida_cable_usdt' | 'bajada_cable_usdt'
   // USDT
   | 'compra_usdt_cash' | 'venta_usdt_cash'
   | 'compra_usdt_pesos' | 'venta_usdt_pesos'
@@ -43,6 +43,7 @@ export const OPERATION_LABELS: Record<OperationType, string> = {
   bajada_cable_pesos_tt: 'Bajada de Cable (Pesos TT)',
   subida_cable: 'Subida de Cable',
   subida_cable_usdt: 'Subida de Cable por USDT',
+  bajada_cable_usdt: 'Venta USDT por Cable (USA)',
   compra_usdt_cash: 'Compra USDT / USD Cash',
   venta_usdt_cash: 'Venta USDT / USD Cash',
   compra_usdt_pesos: 'Compra USDT / Pesos TT',
@@ -94,7 +95,7 @@ export const OPERATION_GROUPS: { label: string; types: OperationType[] }[] = [
   },
   {
     label: '◎ USDT',
-    types: ['compra_usdt_cash', 'venta_usdt_cash', 'compra_usdt_pesos', 'venta_usdt_pesos'],
+    types: ['compra_usdt_cash', 'venta_usdt_cash', 'compra_usdt_pesos', 'venta_usdt_pesos', 'bajada_cable_usdt'],
   },
   {
     label: '🇪🇺 Euros',
@@ -132,6 +133,7 @@ export const OPERATION_COLORS: Record<string, string> = {
   bajada_cable_pesos_tt: 'bg-orange-100 text-orange-800',
   subida_cable: 'bg-amber-100 text-amber-800',
   subida_cable_usdt: 'bg-blue-100 text-blue-800',
+  bajada_cable_usdt: 'bg-cyan-100 text-cyan-800',
   compra_usdt_cash: 'bg-blue-100 text-blue-800',
   venta_usdt_cash: 'bg-purple-100 text-purple-800',
   compra_usdt_pesos: 'bg-cyan-100 text-cyan-800',

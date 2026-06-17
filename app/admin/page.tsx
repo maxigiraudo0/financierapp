@@ -15,7 +15,7 @@ interface Cierre {
   saldo_cuentas_usa: number
 }
 
-interface Calle { deben_usd: number; debo_usd: number; deben_ars: number; debo_ars: number }
+interface Calle { deben_usd: number; debo_usd: number; deben_ars: number; debo_ars: number; deben_usdt: number; debo_usdt: number }
 interface Operacion {
   id: string; tipo: string; monto_usd: number; monto_usdt: number
   monto_pesos: number; monto_eur: number; comision_usd: number
@@ -27,13 +27,16 @@ const emptyCalle = { deben_usd: '', debo_usd: '', deben_ars: '', debo_ars: '' }
 
 export default function AdminDashboard() {
   const [stock, setStock] = useState<StockDelta & { base_fecha: string | null }>({ ...ZERO_DELTA, base_fecha: null })
-  const [calle, setCalle] = useState<Calle>({ deben_usd: 0, debo_usd: 0, deben_ars: 0, debo_ars: 0 })
+  const [calle, setCalle] = useState<Calle>({ deben_usd: 0, debo_usd: 0, deben_ars: 0, debo_ars: 0, deben_usdt: 0, debo_usdt: 0 })
   const [tc, setTc] = useState(1425)
   const [tcArsCash, setTcArsCash] = useState(1425)
   const [tcArsTt, setTcArsTt] = useState(1425)
   const [tcUsdt, setTcUsdt] = useState(1)
   const [tcUsa, setTcUsa] = useState(1)
   const [tcEur, setTcEur] = useState(1.08)
+  // Borrador de los TC (se editan libremente y se aplican al tocar "Guardar")
+  const [tcDraft, setTcDraft] = useState({ ars_cash: '', ars_tt: '', usdt: '', usa: '', eur: '' })
+  const [tcGuardado, setTcGuardado] = useState(false)
   const [ultimasOps, setUltimasOps] = useState<Operacion[]>([])
   const [stats, setStats] = useState({ clientes: 0, operaciones: 0, ops_hoy: 0 })
   const [loading, setLoading] = useState(true)
@@ -50,14 +53,27 @@ export default function AdminDashboard() {
   useEffect(() => {
     try {
       const s = JSON.parse(localStorage.getItem('tc_config') || '{}')
+      const v = {
+        ars_cash: s.tcArsCash ?? 1425, ars_tt: s.tcArsTt ?? 1425,
+        usdt: s.tcUsdt ?? 1, usa: s.tcUsa ?? 1, eur: s.tcEur ?? 1.08,
+      }
       if (s.tc) setTc(s.tc)
-      if (s.tcArsCash) setTcArsCash(s.tcArsCash)
-      if (s.tcArsTt) setTcArsTt(s.tcArsTt)
-      if (s.tcUsdt) setTcUsdt(s.tcUsdt)
-      if (s.tcUsa) setTcUsa(s.tcUsa)
-      if (s.tcEur) setTcEur(s.tcEur)
+      setTcArsCash(v.ars_cash); setTcArsTt(v.ars_tt)
+      setTcUsdt(v.usdt); setTcUsa(v.usa); setTcEur(v.eur)
+      setTcDraft({ ars_cash: String(v.ars_cash), ars_tt: String(v.ars_tt), usdt: String(v.usdt), usa: String(v.usa), eur: String(v.eur) })
     } catch {}
   }, [])
+
+  const guardarTC = () => {
+    const n = (x: string, d: number) => { const v = parseFloat(x); return Number.isFinite(v) ? v : d }
+    setTcArsCash(n(tcDraft.ars_cash, 1425))
+    setTcArsTt(n(tcDraft.ars_tt, 1425))
+    setTcUsdt(n(tcDraft.usdt, 1))
+    setTcUsa(n(tcDraft.usa, 1))
+    setTcEur(n(tcDraft.eur, 1.08))
+    setTcGuardado(true)
+    setTimeout(() => setTcGuardado(false), 2000)
+  }
   useEffect(() => {
     localStorage.setItem('tc_config', JSON.stringify({ tc, tcArsCash, tcArsTt, tcUsdt, tcUsa, tcEur }))
   }, [tc, tcArsCash, tcArsTt, tcUsdt, tcUsa, tcEur])
@@ -145,6 +161,8 @@ export default function AdminDashboard() {
         debo_usd:  calleData.filter(c => c.moneda === 'USD' && c.direccion === 'debo').reduce((a, c) => a + c.monto, 0),
         deben_ars: calleData.filter(c => c.moneda === 'ARS' && c.direccion === 'deben').reduce((a, c) => a + c.monto, 0),
         debo_ars:  calleData.filter(c => c.moneda === 'ARS' && c.direccion === 'debo').reduce((a, c) => a + c.monto, 0),
+        deben_usdt: calleData.filter(c => c.moneda === 'USDT' && c.direccion === 'deben').reduce((a, c) => a + c.monto, 0),
+        debo_usdt:  calleData.filter(c => c.moneda === 'USDT' && c.direccion === 'debo').reduce((a, c) => a + c.monto, 0),
       })
     }
 
@@ -264,6 +282,7 @@ export default function AdminDashboard() {
     + div(num(stock.ars_tt), num(tcArsTt))
   const netCalle = (num(calle.deben_usd) - num(calle.debo_usd))
     + div(num(calle.deben_ars) - num(calle.debo_ars), num(tcArsCash))
+    + (num(calle.deben_usdt) - num(calle.debo_usdt)) * num(tcUsdt, 1)
   const totalGlobal = totalUSD + netCalle
 
   if (loading) return <div className="flex items-center justify-center h-64 text-gray-400">Cargando...</div>
@@ -487,35 +506,40 @@ export default function AdminDashboard() {
 
       {/* Panel de Cotizaciones */}
       <div className="card mb-8">
-        <h2 className="font-bold text-[#1a1a2e] mb-4">💱 Cotizaciones (tipos de cambio)</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-bold text-[#1a1a2e]">💱 Cotizaciones (tipos de cambio)</h2>
+          <button onClick={guardarTC} className="btn-primary text-sm px-5 py-2">
+            {tcGuardado ? '✓ Guardado' : '💾 Guardar'}
+          </button>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div>
             <label className="label">💵 ARS Físico ($/USD)</label>
-            <input className="input" type="number" value={tcArsCash}
-              onChange={e => setTcArsCash(Number(e.target.value))} />
+            <input className="input" type="number" value={tcDraft.ars_cash}
+              onChange={e => setTcDraft({ ...tcDraft, ars_cash: e.target.value })} />
           </div>
           <div>
             <label className="label">📲 ARS TT ($/USD)</label>
-            <input className="input" type="number" value={tcArsTt}
-              onChange={e => setTcArsTt(Number(e.target.value))} />
+            <input className="input" type="number" value={tcDraft.ars_tt}
+              onChange={e => setTcDraft({ ...tcDraft, ars_tt: e.target.value })} />
           </div>
           <div>
             <label className="label">◎ USDT (USD x USDT)</label>
-            <input className="input" type="number" step="0.0001" value={tcUsdt}
-              onChange={e => setTcUsdt(Number(e.target.value))} />
+            <input className="input" type="number" step="0.0001" value={tcDraft.usdt}
+              onChange={e => setTcDraft({ ...tcDraft, usdt: e.target.value })} />
           </div>
           <div>
             <label className="label">🇺🇸 Caja USA (USD x USD)</label>
-            <input className="input" type="number" step="0.0001" value={tcUsa}
-              onChange={e => setTcUsa(Number(e.target.value))} />
+            <input className="input" type="number" step="0.0001" value={tcDraft.usa}
+              onChange={e => setTcDraft({ ...tcDraft, usa: e.target.value })} />
           </div>
           <div>
             <label className="label">🇪🇺 EUR (USD x EUR)</label>
-            <input className="input" type="number" step="0.0001" value={tcEur}
-              onChange={e => setTcEur(Number(e.target.value))} />
+            <input className="input" type="number" step="0.0001" value={tcDraft.eur}
+              onChange={e => setTcDraft({ ...tcDraft, eur: e.target.value })} />
           </div>
         </div>
-        <p className="text-xs text-gray-400 mt-3">Se guardan automáticamente y se usan para el Total Global en USD.</p>
+        <p className="text-xs text-gray-400 mt-3">Editá los valores y tocá <strong>Guardar</strong> para aplicarlos al Total Global (no se recalcula mientras escribís).</p>
       </div>
 
       {/* Últimas ops */}

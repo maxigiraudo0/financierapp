@@ -14,6 +14,7 @@ export default function CuentasPage() {
   const [formUSA, setFormUSA] = useState({ nombre: '', banco: '', notas: '', saldo_inicial: '' })
   const [formPesos, setFormPesos] = useState({ nombre: '', alias: '', cbu: '', notas: '', saldo_inicial: '' })
   const [movsPorPesos, setMovsPorPesos] = useState<Record<string, number>>({})
+  const [noAcredPorCuenta, setNoAcredPorCuenta] = useState<Record<string, number>>({})
   const [saving, setSaving] = useState(false)
 
   // Detalle de cuenta USA
@@ -239,21 +240,26 @@ export default function CuentasPage() {
   }
 
   const loadAll = async () => {
-    const [{ data: usa }, { data: pesos }, { data: ops }] = await Promise.all([
+    const [{ data: usa }, { data: pesos }, { data: ops }, { data: noAcred }] = await Promise.all([
       supabase.from('cuentas_usa').select('*').order('nombre'),
       supabase.from('cuentas_pesos_tt').select('*').order('nombre'),
-      supabase.from('operaciones').select('cuenta_usa_id, cuenta_pesos_id, tipo, monto_usd, monto_pesos, comision_usd, costo_wire, wire_absorbe').or('tipo.in.(bajada_cable,bajada_cable_pesos,bajada_cable_pesos_tt,subida_cable,subida_cable_usdt),cuenta_pesos_id.not.is.null'),
+      supabase.from('operaciones').select('cuenta_usa_id, cuenta_pesos_id, tipo, monto_usd, monto_pesos, comision_usd, costo_wire, wire_absorbe').or('tipo.in.(bajada_cable,bajada_cable_pesos,bajada_cable_pesos_tt,subida_cable,subida_cable_usdt,bajada_cable_usdt),cuenta_pesos_id.not.is.null'),
+      supabase.from('saldo_calle').select('ref_cuenta, monto').eq('origen', 'ingreso_pendiente').eq('activo', true),
     ])
     if (usa) setCuentasUSA(usa)
     if (pesos) setCuentasPesos(pesos)
+    // Tickets no acreditados por recaudadora
+    const na: Record<string, number> = {}
+    ;(noAcred || []).forEach(r => { if (r.ref_cuenta) na[r.ref_cuenta] = (na[r.ref_cuenta] || 0) + Number(r.monto) })
+    setNoAcredPorCuenta(na)
     // Movimientos cuentas USA
     const movs: Record<string, number> = {}
     const movsP: Record<string, number> = {}
     if (ops) ops.forEach(o => {
       // USA
       if (o.cuenta_usa_id) {
-        let delta = (o.tipo === 'bajada_cable' || o.tipo === 'bajada_cable_pesos' || o.tipo === 'bajada_cable_pesos_tt')
-          ? (o.monto_usd || 0)
+        let delta = (o.tipo === 'bajada_cable' || o.tipo === 'bajada_cable_pesos' || o.tipo === 'bajada_cable_pesos_tt' || o.tipo === 'bajada_cable_usdt')
+          ? (o.monto_usd || 0)   // entra USD a la cuenta USA
           : (o.tipo === 'subida_cable'
               ? -((o.monto_usd || 0) - (o.comision_usd || 0))   // sale el neto (monto − comisión)
               : -(o.monto_usd || 0))
@@ -394,7 +400,7 @@ export default function CuentasPage() {
           )}
 
           {/* Total USA */}
-          <div className="card mb-3 bg-[#1a1a2e] text-white flex items-center justify-between">
+          <div className="card mb-3 text-white flex items-center justify-between" style={{ backgroundColor: '#1a1a2e' }}>
             <span className="text-xs font-bold text-[#2EDBB8] uppercase tracking-wide">Total Cuentas USA</span>
             <span className="text-xl font-bold">${fmt(totalUSA)}</span>
           </div>
@@ -454,10 +460,32 @@ export default function CuentasPage() {
           )}
 
           {/* Total Pesos TT */}
-          <div className="card mb-3 bg-[#1a1a2e] text-white flex items-center justify-between">
+          <div className="card mb-3 text-white flex items-center justify-between" style={{ backgroundColor: '#1a1a2e' }}>
             <span className="text-xs font-bold text-[#2EDBB8] uppercase tracking-wide">Total Cuentas Pesos TT</span>
             <span className="text-xl font-bold">${fmt(totalPesos)}</span>
           </div>
+
+          {/* Tickets no acreditados (se descuentan) */}
+          {(() => {
+            const totalNA = cuentasPesos.reduce((s, c) => s + (noAcredPorCuenta[c.id] || 0), 0)
+            if (totalNA <= 0) return null
+            return (
+              <div className="card mb-3 border-2 border-amber-300 bg-amber-50">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-amber-700 uppercase tracking-wide">🎫 Total Tickets No Acreditados</span>
+                  <span className="text-lg font-bold text-amber-700">− ${fmt(totalNA)}</span>
+                </div>
+                <div className="space-y-1">
+                  {cuentasPesos.filter(c => (noAcredPorCuenta[c.id] || 0) > 0).map(c => (
+                    <div key={c.id} className="flex items-center justify-between text-xs text-gray-600">
+                      <span>{c.nombre}</span>
+                      <span className="font-mono">− ${fmt(noAcredPorCuenta[c.id] || 0)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
 
           <div className="card">
             {cuentasPesos.length === 0 ? (

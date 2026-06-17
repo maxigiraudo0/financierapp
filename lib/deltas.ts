@@ -58,6 +58,7 @@ function tradeLegs(op: Op): { recibo: Leg; entrego: Leg } | null {
     case 'bajada_cable_pesos_tt': return { recibo: {caja:'usa',v:usd},   entrego: {caja:'ars_tt',v:pesos} }   // entra USA, sale pesos TT
     case 'subida_cable':        return { recibo: {caja:'usd',v:usd},   entrego: {caja:'usa',v:usd} }  // sale de cuenta USA
     case 'subida_cable_usdt':   return { recibo: {caja:'usdt',v:usdt}, entrego: {caja:'usa',v:usd} } // mando cable USA, me pagan USDT
+    case 'bajada_cable_usdt':   return { recibo: {caja:'usa',v:usd},   entrego: {caja:'usdt',v:usdt} } // vendo USDT, me entra cable a USA
     default: return null
   }
 }
