@@ -74,8 +74,10 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. Clientes para matchear
-    const { data: clientes } = await supabase.from('clientes').select('id, nombre')
+    const { data: clientes } = await supabase.from('clientes').select('id, nombre, sheet_id')
     const mapCli = new Map((clientes || []).map(c => [c.nombre.toLowerCase().trim(), c.id]))
+    // Clientes con planilla propia vinculada (su deuda ya sale de su sheet, no van a la bandeja)
+    const sheetLinkedIds = new Set((clientes || []).filter(c => c.sheet_id).map(c => c.id))
     const fechaRe = /^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/
 
     // 4b. Auto-crear clientes que figuran en el sheet y no existen
@@ -131,12 +133,11 @@ export async function POST(req: NextRequest) {
           filas.push({ tipo: 'gasto_ars_tt', monto_pesos: monto, cuenta_pesos_id,
             cliente_id: cliId,
             descripcion: `OUT: ${cli}`.trim(), fecha: parseFecha(c[11]), pagado: true, origen: 'sheet' })
-          // Solo van a la bandeja de pendientes los egresos de HOY que NO tienen
-          // un cliente ya asignado en el sheet (cargado a mano). Si ya tiene cliente
-          // matcheado, queda manejado en el sheet de ese cliente → no lo mostramos
-          // como pendiente ni tocamos la calle.
+          // Van a la bandeja de pendientes los egresos de HOY, EXCEPTO los de
+          // clientes con planilla propia vinculada (su deuda ya sale de su sheet).
+          // Los clientes normales (Mati, Sandro, etc.) sí van para asignar a mano.
           const fEgreso = parseFecha(c[11])
-          if (fEgreso === hoyStr && !cliId) {
+          if (fEgreso === hoyStr && !(cliId && sheetLinkedIds.has(cliId))) {
             const tc = parseMonto(c[14])
             pendientes.push({
               cuenta_pesos_id, fecha: fEgreso,
