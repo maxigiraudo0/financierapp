@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { sumDeltas, ZERO_DELTA, type StockDelta } from '@/lib/deltas'
+import { sumDeltas, computeDelta, ZERO_DELTA, type StockDelta } from '@/lib/deltas'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -10,6 +10,7 @@ interface Cierre {
   saldo_usdt: number; saldo_eur: number; saldo_pesos_transfer: number
   saldo_pesos_cash: number; saldo_cuentas_usa: number
   saldo_calle_usd: number; saldo_calle_ars: number
+  total_global: number | null
   notas: string; cerrado: boolean
 }
 
@@ -63,10 +64,37 @@ export default function CierrePage() {
       costo_wire: Number(o.costo_wire) || null, wire_absorbe: o.wire_absorbe, comision_usd: Number(o.comision_usd) || null,
     }))) : { ...ZERO_DELTA }
 
+    // 3b. Caja ARS TT = saldo final de recaudadoras (igual que el dashboard)
+    const { data: recaOps } = await supabase.from('operaciones')
+      .select('tipo, monto_usd, monto_usdt, monto_pesos, monto_eur, medio, pendiente')
+      .not('cuenta_pesos_id', 'is', null)
+    const ttDeltaRecas = (recaOps || []).reduce((s, o) => s + computeDelta({
+      tipo: o.tipo, monto_usd: Number(o.monto_usd) || 0, monto_usdt: Number(o.monto_usdt) || 0,
+      monto_pesos: Number(o.monto_pesos) || 0, monto_eur: Number(o.monto_eur) || 0,
+      medio: o.medio, pendiente: o.pendiente,
+    }).ars_tt, 0)
+    const arsTT = ttInicial + ttDeltaRecas
+
     // 4. Calle (neto me deben - le debo)
     const { data: calle } = await supabase.from('saldo_calle').select('moneda, monto, direccion').eq('activo', true)
     const netoCalle = (m: string) => (calle || []).filter(c => c.moneda === m)
       .reduce((s, c) => s + (c.direccion === 'deben' ? c.monto : -c.monto), 0)
+
+    // 4b. Total Global en USD (mismas cotizaciones que el dashboard)
+    const tcCfg = (() => { try { return JSON.parse(localStorage.getItem('tc_config') || '{}') } catch { return {} } })()
+    const tcArsCash = Number(tcCfg.tcArsCash) || 1425, tcArsTt = Number(tcCfg.tcArsTt) || 1425
+    const tcUsdt = Number(tcCfg.tcUsdt) || 1, tcUsa = Number(tcCfg.tcUsa) || 1, tcEur = Number(tcCfg.tcEur) || 1.08
+    const dv = (a: number, t: number) => (t > 0 ? a / t : 0)
+    const totalGlobal =
+      (base.usd + d.usd)
+      + (base.usdt + d.usdt) * tcUsdt
+      + (base.eur + d.eur) * tcEur
+      + (base.usa + d.usa) * tcUsa
+      + dv(base.ars_cash + d.ars_cash, tcArsCash)
+      + dv(arsTT, tcArsTt)
+      + netoCalle('USD')
+      + dv(netoCalle('ARS'), tcArsCash)
+      + netoCalle('USDT') * tcUsdt
 
     const payload = {
       fecha: today,
@@ -74,11 +102,12 @@ export default function CierrePage() {
       saldo_usd_transfer: 0,
       saldo_usdt: base.usdt + d.usdt,
       saldo_eur: base.eur + d.eur,
-      saldo_pesos_transfer: base.ars_tt + d.ars_tt,
+      saldo_pesos_transfer: arsTT,
       saldo_pesos_cash: base.ars_cash + d.ars_cash,
       saldo_cuentas_usa: base.usa + d.usa,
       saldo_calle_usd: netoCalle('USD'),
       saldo_calle_ars: netoCalle('ARS'),
+      total_global: Math.round(totalGlobal * 100) / 100,
       notas: 'Cierre automático',
       cerrado: true,
     }
@@ -219,6 +248,12 @@ export default function CierrePage() {
                   {c.cerrado ? '✓ Cerrado' : 'Borrador'}
                 </span>
               </div>
+              {c.total_global != null && (
+                <div className="text-right">
+                  <div className="text-[10px] text-gray-400 uppercase tracking-wide">🌐 Total Global (USD)</div>
+                  <div className="text-xl font-bold text-[#2EDBB8]">${f(c.total_global)}</div>
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-3 gap-3 text-sm md:grid-cols-5">
               <div className="bg-gray-50 rounded-lg p-3">
