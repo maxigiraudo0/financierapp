@@ -30,6 +30,7 @@ export default function ClienteDetallePage() {
   const [sheetUrl, setSheetUrl] = useState('')
   const [sheetCelda, setSheetCelda] = useState('J10')
   const [impSheet, setImpSheet] = useState(false)
+  const [linkCopiado, setLinkCopiado] = useState(false)
 
   const importarClienteSheet = async () => {
     const t = sheetUrl.trim()
@@ -85,6 +86,16 @@ export default function ClienteDetallePage() {
           <h1 className="text-2xl font-bold text-[#1a1a2e]">{cliente.nombre}</h1>
           <p className="text-gray-500 text-sm mt-1">{cliente.email}{cliente.telefono ? ` · ${cliente.telefono}` : ''}</p>
         </div>
+        <button
+          onClick={() => {
+            const link = `${window.location.origin}/cuenta/${id}`
+            navigator.clipboard?.writeText(link).then(() => setLinkCopiado(true)).catch(() => {})
+            setTimeout(() => setLinkCopiado(false), 2500)
+            window.prompt('Link de la cuenta del cliente (copialo y pasáselo):', link)
+          }}
+          className="btn-primary text-sm px-4 py-2 whitespace-nowrap">
+          {linkCopiado ? '✓ Link copiado' : '🔗 Generar link cliente'}
+        </button>
       </div>
 
       {/* Saldos en la calle */}
