@@ -102,7 +102,8 @@ export async function POST(req: NextRequest) {
     const filas: Record<string, unknown>[] = []
     const pendientes: Record<string, unknown>[] = []
     const ingresosPend: Record<string, unknown>[] = []
-    const hoyStr = new Date().toISOString().split('T')[0]
+    const ayerD = new Date(); ayerD.setDate(ayerD.getDate() - 1)
+    const ayerStr = ayerD.toISOString().split('T')[0]  // egresos desde ayer (no los viejos)
     for (let i = 1; i < rows.length; i++) {
       const c = rows[i] || []
       if (fechaRe.test(String(c[0] || ''))) {
@@ -133,11 +134,11 @@ export async function POST(req: NextRequest) {
           filas.push({ tipo: 'gasto_ars_tt', monto_pesos: monto, cuenta_pesos_id,
             cliente_id: cliId,
             descripcion: `OUT: ${cli}`.trim(), fecha: parseFecha(c[11]), pagado: true, origen: 'sheet' })
-          // Van a la bandeja de pendientes los egresos de HOY, EXCEPTO los de
-          // clientes con planilla propia vinculada (su deuda ya sale de su sheet).
-          // Los clientes normales (Mati, Sandro, etc.) sí van para asignar a mano.
+          // Van a la bandeja los egresos de AYER en adelante (no los viejos),
+          // EXCEPTO los de clientes con planilla propia vinculada (su deuda ya
+          // sale de su sheet). Los clientes normales sí van para asignar a mano.
           const fEgreso = parseFecha(c[11])
-          if (fEgreso === hoyStr && !(cliId && sheetLinkedIds.has(cliId))) {
+          if (fEgreso >= ayerStr && !(cliId && sheetLinkedIds.has(cliId))) {
             const tc = parseMonto(c[14])
             pendientes.push({
               cuenta_pesos_id, fecha: fEgreso,
