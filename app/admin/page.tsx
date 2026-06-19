@@ -281,7 +281,7 @@ export default function AdminDashboard() {
     + div(num(stock.ars_cash), num(tcArsCash))
     + div(num(stock.ars_tt), num(tcArsTt))
   const netCalle = (num(calle.deben_usd) - num(calle.debo_usd))
-    + div(num(calle.deben_ars) - num(calle.debo_ars), num(tcArsCash))
+    + div(num(calle.deben_ars) - num(calle.debo_ars), num(tcArsTt))  // calle ARS al TC de ARS TT (blue)
     + (num(calle.deben_usdt) - num(calle.debo_usdt)) * num(tcUsdt, 1)
   const totalGlobal = totalUSD + netCalle
 

@@ -93,7 +93,7 @@ export default function CierrePage() {
       + dv(base.ars_cash + d.ars_cash, tcArsCash)
       + dv(arsTT, tcArsTt)
       + netoCalle('USD')
-      + dv(netoCalle('ARS'), tcArsCash)
+      + dv(netoCalle('ARS'), tcArsTt)  // calle ARS al TC de ARS TT
       + netoCalle('USDT') * tcUsdt
 
     const payload = {
