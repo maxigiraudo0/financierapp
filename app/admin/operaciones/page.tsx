@@ -106,7 +106,12 @@ export default function OperacionesPage() {
   // Auto-calcular comisión cable/USDT
   useEffect(() => {
     if (USES_PORCENTAJE.includes(form.tipo) && form.monto_usd && form.porcentaje) {
-      const comision = (parseFloat(form.monto_usd) * parseFloat(form.porcentaje)) / 100
+      const m = parseFloat(form.monto_usd), p = parseFloat(form.porcentaje)
+      // Subida de cable: el % es sobre el BRUTO (lo que da el cliente) y el monto
+      // cargado es el neto (cable). Comisión = m × p/(100−p).
+      const comision = form.tipo === 'subida_cable'
+        ? (p < 100 ? (m * p) / (100 - p) : 0)
+        : (m * p) / 100
       setForm(f => ({ ...f, comision_usd: comision.toFixed(2) }))
     }
   }, [form.monto_usd, form.porcentaje, form.tipo])
@@ -167,7 +172,11 @@ export default function OperacionesPage() {
         const cash = usd() - (parseFloat(form.comision_usd) || 0)
         return { recibo: {m:'USD',v:usd()}, entrego: {m:'USD',v:cash} }
       }
-      case 'subida_cable':        return { recibo: {m:'USD',v:usd()}, entrego: {m:'USD',v:usd()} }
+      case 'subida_cable': {
+        // me_deben → el cliente debe el BRUTO (cable + comisión); le_debo → el cable
+        const bruto = usd() + (parseFloat(form.comision_usd) || 0)
+        return { recibo: {m:'USD',v:bruto}, entrego: {m:'USD',v:usd()} }
+      }
       case 'subida_cable_usdt':   return { recibo: {m:'USDT',v:usdt()}, entrego: {m:'USD',v:usd()} }
       default: return { recibo: {m:'',v:0}, entrego: {m:'',v:0} }
     }
@@ -572,12 +581,12 @@ export default function OperacionesPage() {
                 </div>
               )}
 
-              {/* USD recibido por el cliente (subida de cable) = monto que sale de USA − comisión */}
+              {/* USD que da el cliente (subida de cable) = cable (sale de USA) + comisión */}
               {form.tipo === 'subida_cable' && form.monto_usd && (
                 <div className="bg-[#f0fdf9] p-3 rounded-lg flex items-center justify-between">
-                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">USD recibido por el cliente</span>
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">USD que da el cliente (bruto)</span>
                   <span className="text-lg font-bold text-[#1a1a2e]">
-                    ${((parseFloat(form.monto_usd) || 0) - (parseFloat(form.comision_usd) || 0)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    ${((parseFloat(form.monto_usd) || 0) + (parseFloat(form.comision_usd) || 0)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                   </span>
                 </div>
               )}

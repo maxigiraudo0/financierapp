@@ -105,12 +105,12 @@ export function computeDelta(op: Op): StockDelta {
   }
 
   // ── Subida de cable ──
-  // Recibo el monto completo acá (USD/cash) y de la cuenta USA sale solo el
-  // neto (monto − comisión). La comisión queda como ganancia.
+  // El monto cargado es el CABLE que sale de la cuenta USA (neto). El cliente
+  // me entrega el BRUTO (cable + comisión) en USD; la comisión es ganancia.
   if (tipo === 'subida_cable') {
-    const cash = usd - (op.comision_usd || 0)
-    if (op.pendiente !== 'me_deben') d.usd += usd          // me entregan acá
-    if (op.pendiente !== 'le_debo')  d.usa -= cash          // sale el neto de la cuenta USA
+    const bruto = usd + (op.comision_usd || 0)
+    if (op.pendiente !== 'me_deben') d.usd += bruto         // me da el cliente (bruto)
+    if (op.pendiente !== 'le_debo')  d.usa -= usd           // sale el cable de la cuenta USA
     return d
   }
 
