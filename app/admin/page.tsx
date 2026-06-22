@@ -456,7 +456,7 @@ export default function AdminDashboard() {
           <div className="mt-3 pt-3 border-t border-white/10 text-xs text-gray-400 space-y-0.5">
             <div className="flex justify-between"><span>Solo cajas</span><span className="font-bold text-white">${f(totalUSD)}</span></div>
             <div className="flex justify-between"><span>Neto calle</span><span className={`font-bold ${netCalle >= 0 ? 'text-green-400' : 'text-red-400'}`}>{netCalle >= 0 ? '+' : ''}${f(netCalle)}</span></div>
-            <div className="flex justify-between text-[10px] pt-1 text-gray-500"><span>ARS Fís ${tcArsCash.toLocaleString()} · ARS TT ${tcArsTt.toLocaleString()} · USDT {tcUsdt} · USA {tcUsa} · EUR {tcEur}</span></div>
+            <div className="flex justify-between text-[10px] pt-1 text-gray-500"><span>ARS Fís ${num(tcArsCash).toLocaleString()} · ARS TT ${num(tcArsTt).toLocaleString()} · USDT {num(tcUsdt)} · USA {num(tcUsa)} · EUR {num(tcEur)}</span></div>
           </div>
         </div>
         <div className="card border border-red-200 col-span-2">
