@@ -152,7 +152,7 @@ export default function CuentasPage() {
       try {
         const res = await fetch('/api/import-cliente-sheet', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cliente_id: cl.id, sheet_id: cl.sheet_id, gid: cl.sheet_gid, celda: cl.sheet_celda || 'J10', moneda: cl.sheet_moneda || 'USD' }),
+          body: JSON.stringify({ cliente_id: cl.id, sheet_id: cl.sheet_id, gid: cl.sheet_gid, celda: cl.sheet_celda || 'J10', moneda: cl.sheet_moneda || 'ARS' }),
         })
         if (res.ok) ok++
       } catch {}

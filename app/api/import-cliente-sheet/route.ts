@@ -15,7 +15,13 @@ export async function POST(req: NextRequest) {
     const { cliente_id, sheet_id, gid, celda, auto_mes, moneda } = await req.json()
     if (!cliente_id || !sheet_id || !gid) return NextResponse.json({ error: 'Falta cliente_id, sheet_id o gid' }, { status: 400 })
     const cell = (celda || 'J10').toUpperCase()
-    const mon = (moneda || 'USD').toUpperCase()
+    // Si no pasan moneda, usar la guardada del cliente; default ARS (no USD, para
+    // no cargar millones de pesos como dólares por error).
+    let mon = (moneda || '').toUpperCase()
+    if (!mon) {
+      const { data: cliPrev } = await supabase.from('clientes').select('sheet_moneda').eq('id', cliente_id).single()
+      mon = (cliPrev?.sheet_moneda || 'ARS').toUpperCase()
+    }
 
     const sheets = await getSheetsClient(true)
     const meta = await sheets.spreadsheets.get({ spreadsheetId: sheet_id, fields: 'sheets.properties' })
