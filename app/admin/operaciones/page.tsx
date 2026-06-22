@@ -502,7 +502,7 @@ export default function OperacionesPage() {
                 )}
                 {usaUSD && (
                   <div>
-                    <label className="label">{form.tipo === 'bajada_cable_usdt' ? 'Cable recibido (USD)' : esCableUsdt ? 'Cable enviado (USD)' : (form.tipo === 'bajada_cable' || esCablePesos) ? 'USD recibido en cuenta USA' : 'Monto USD'}</label>
+                    <label className="label">{form.tipo === 'bajada_cable_usdt' ? 'Cable recibido (USD)' : esCableUsdt ? 'Cable enviado (USD)' : (form.tipo === 'bajada_cable' || esCablePesos) ? 'USD recibido en cuenta USA' : form.tipo === 'subida_cable' ? 'Monto que sale de cuenta USA' : 'Monto USD'}</label>
                     <input className="input" type="number" step="0.01" placeholder="0.00" value={form.monto_usd} onChange={e => setForm({...form, monto_usd: e.target.value})} />
                   </div>
                 )}
@@ -566,6 +566,16 @@ export default function OperacionesPage() {
               {form.tipo === 'bajada_cable' && form.monto_usd && (
                 <div className="bg-[#f0fdf9] p-3 rounded-lg flex items-center justify-between">
                   <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">USD cash a entregar</span>
+                  <span className="text-lg font-bold text-[#1a1a2e]">
+                    ${((parseFloat(form.monto_usd) || 0) - (parseFloat(form.comision_usd) || 0)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+
+              {/* USD recibido por el cliente (subida de cable) = monto que sale de USA − comisión */}
+              {form.tipo === 'subida_cable' && form.monto_usd && (
+                <div className="bg-[#f0fdf9] p-3 rounded-lg flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">USD recibido por el cliente</span>
                   <span className="text-lg font-bold text-[#1a1a2e]">
                     ${((parseFloat(form.monto_usd) || 0) - (parseFloat(form.comision_usd) || 0)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                   </span>
