@@ -50,10 +50,13 @@ export async function POST(req: NextRequest) {
 
     // El saldo de este cliente lo define el sheet → borrar TODOS sus saldos previos
     await supabase.from('saldo_calle').delete().eq('cliente_id', cliente_id)
-    if (valor > 0) {
+    // El saldo puede ser positivo (le debo / liquidación a pagar) o negativo
+    // (me deben). Antes solo se cargaba si valor > 0 y los negativos se perdían.
+    if (valor !== 0) {
       await supabase.from('saldo_calle').insert({
-        cliente_id, moneda: mon, monto: Math.round(valor * 100) / 100,
-        direccion: 'debo', descripcion: `Liquidación ${mon} (sheet, ${cell})`,
+        cliente_id, moneda: mon, monto: Math.round(Math.abs(valor) * 100) / 100,
+        direccion: valor > 0 ? 'debo' : 'deben',
+        descripcion: `Liquidación ${mon} (sheet, ${cell})`,
         fecha: new Date().toISOString().split('T')[0], activo: true, origen: 'cliente_sheet',
       })
     }
