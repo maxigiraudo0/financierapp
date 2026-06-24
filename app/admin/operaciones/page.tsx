@@ -293,6 +293,10 @@ export default function OperacionesPage() {
     // Crea el saldo inverso cuando hubo sobrepago
     const crearSobrante = async (moneda: string, direccion: string, monto: number) => {
       if (!form.cliente_id || monto <= 0.001) return
+      // Si el cliente tiene planilla vinculada, su saldo lo define el sheet (ej H11).
+      // No creamos sobrante: ese egreso ya está cargado en su Excel y duplicaría la deuda.
+      const { data: cli } = await supabase.from('clientes').select('sheet_id').eq('id', form.cliente_id).single()
+      if (cli?.sheet_id) return
       await supabase.from('saldo_calle').insert({
         cliente_id: form.cliente_id, moneda, monto, direccion,
         descripcion: 'Sobrepago (saldo a favor)', fecha: form.fecha, activo: true,
