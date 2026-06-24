@@ -145,6 +145,11 @@ export function computeDelta(op: Op): StockDelta {
     case 'prestamo_usdt':   d.usdt     -= usdt;  break
     case 'prestamo_ars':    d.ars_cash -= pesos; break
     case 'prestamo_ars_tt': d.ars_tt   -= pesos; break
+    // Préstamos recibidos (entra a la caja; yo le quedo debiendo al prestamista)
+    case 'prestamo_recibido_usd':    d.usd      += usd;   break
+    case 'prestamo_recibido_usdt':   d.usdt     += usdt;  break
+    case 'prestamo_recibido_ars':    d.ars_cash += pesos; break
+    case 'prestamo_recibido_ars_tt': d.ars_tt   += pesos; break
     // Gastos (restan de la caja)
     case 'gasto_usd':       d.usd      -= usd;   break
     case 'gasto_usdt':      d.usdt     -= usdt;  break

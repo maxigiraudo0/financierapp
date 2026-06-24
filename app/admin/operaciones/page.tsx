@@ -330,14 +330,17 @@ export default function OperacionesPage() {
       }
     }
 
-    // Préstamo → el cliente queda debiendo (me deben) en la moneda prestada
+    // Préstamo → el cliente queda debiendo (me deben).
+    // Préstamo recibido → yo le quedo debiendo al prestamista (le debo).
     if (form.tipo.startsWith('prestamo_') && form.cliente_id) {
-      const monedaPrest = form.tipo === 'prestamo_usd' ? 'USD' : form.tipo === 'prestamo_usdt' ? 'USDT' : 'ARS'
+      const recibido = form.tipo.startsWith('prestamo_recibido_')
+      const monedaPrest = form.tipo.endsWith('_usd') ? 'USD' : form.tipo.endsWith('_usdt') ? 'USDT' : 'ARS'
       const montoPrest = monedaPrest === 'USD' ? mUsd : monedaPrest === 'USDT' ? mUsdt : mPesos
       if (montoPrest > 0) {
         await supabase.from('saldo_calle').insert({
           cliente_id: form.cliente_id, moneda: monedaPrest, monto: montoPrest,
-          direccion: 'deben', descripcion: `Préstamo ${monedaPrest}${form.descripcion ? ' — ' + form.descripcion : ''}`,
+          direccion: recibido ? 'debo' : 'deben',
+          descripcion: `${recibido ? 'Préstamo recibido' : 'Préstamo'} ${monedaPrest}${form.descripcion ? ' — ' + form.descripcion : ''}`,
           fecha: form.fecha, activo: true,
         })
       }
@@ -393,6 +396,7 @@ export default function OperacionesPage() {
 
   const esDeuda = form.tipo.startsWith('cobro_deuda_') || form.tipo.startsWith('pago_deuda_')
   const esPrestamo = form.tipo.startsWith('prestamo_')
+  const esPrestamoRecibido = form.tipo.startsWith('prestamo_recibido_')
   const esCobro = form.tipo.startsWith('cobro_deuda_')
   const monedaDeuda = esDeuda ? form.tipo.split('_')[2].toUpperCase() : ''
   const mediosValidos = esDeuda ? MEDIOS.filter(m => (MEDIOS_POR_MONEDA[monedaDeuda] || []).includes(m.value)) : MEDIOS
@@ -401,10 +405,10 @@ export default function OperacionesPage() {
   const esCableUsdt = form.tipo === 'subida_cable_usdt' || form.tipo === 'bajada_cable_usdt'
   const esCablePesos = form.tipo === 'bajada_cable_pesos' || form.tipo === 'bajada_cable_pesos_tt'
   const usaCuentaPesos = ['compra_usdt_pesos', 'venta_usdt_pesos', 'compra_usd_transfer', 'venta_usd_transfer', 'compra_eur_ars', 'venta_eur_ars', 'saldo_inicial_pesos_tt', 'saldo_inicial_pesos_cash'].includes(form.tipo)
-  const usaUSDT = ['compra_usdt_cash', 'venta_usdt_cash', 'compra_usdt_pesos', 'venta_usdt_pesos', 'saldo_inicial_usdt', 'subida_cable_usdt', 'bajada_cable_usdt', 'gasto_usdt', 'ajuste_usdt', 'prestamo_usdt'].includes(form.tipo)
-  const usaPesos = ['compra_usdt_pesos', 'venta_usdt_pesos', 'compra_usd_transfer', 'venta_usd_transfer', 'compra_eur_ars', 'venta_eur_ars', 'saldo_inicial_pesos_tt', 'saldo_inicial_pesos_cash', 'bajada_cable_pesos', 'bajada_cable_pesos_tt', 'gasto_ars_cash', 'gasto_ars_tt', 'ajuste_ars_cash', 'ajuste_ars_tt', 'prestamo_ars', 'prestamo_ars_tt'].includes(form.tipo)
+  const usaUSDT = ['compra_usdt_cash', 'venta_usdt_cash', 'compra_usdt_pesos', 'venta_usdt_pesos', 'saldo_inicial_usdt', 'subida_cable_usdt', 'bajada_cable_usdt', 'gasto_usdt', 'ajuste_usdt', 'prestamo_usdt', 'prestamo_recibido_usdt'].includes(form.tipo)
+  const usaPesos = ['compra_usdt_pesos', 'venta_usdt_pesos', 'compra_usd_transfer', 'venta_usd_transfer', 'compra_eur_ars', 'venta_eur_ars', 'saldo_inicial_pesos_tt', 'saldo_inicial_pesos_cash', 'bajada_cable_pesos', 'bajada_cable_pesos_tt', 'gasto_ars_cash', 'gasto_ars_tt', 'ajuste_ars_cash', 'ajuste_ars_tt', 'prestamo_ars', 'prestamo_ars_tt', 'prestamo_recibido_ars', 'prestamo_recibido_ars_tt'].includes(form.tipo)
   const usaEUR = ['compra_eur_ars', 'venta_eur_ars', 'compra_eur_usd', 'venta_eur_usd', 'saldo_inicial_eur', 'ajuste_eur'].includes(form.tipo)
-  const usaUSD = ['compra_usd_cash', 'venta_usd_cash', 'compra_usd_transfer', 'venta_usd_transfer', 'bajada_cable', 'bajada_cable_pesos', 'bajada_cable_pesos_tt', 'subida_cable', 'subida_cable_usdt', 'bajada_cable_usdt', 'compra_usdt_cash', 'venta_usdt_cash', 'compra_eur_usd', 'venta_eur_usd', 'saldo_inicial_usd', 'saldo_inicial_cuenta_usa', 'ajuste_saldo', 'gasto_usd', 'gasto_usa', 'ajuste_usd', 'ajuste_usa', 'prestamo_usd'].includes(form.tipo)
+  const usaUSD = ['compra_usd_cash', 'venta_usd_cash', 'compra_usd_transfer', 'venta_usd_transfer', 'bajada_cable', 'bajada_cable_pesos', 'bajada_cable_pesos_tt', 'subida_cable', 'subida_cable_usdt', 'bajada_cable_usdt', 'compra_usdt_cash', 'venta_usdt_cash', 'compra_eur_usd', 'venta_eur_usd', 'saldo_inicial_usd', 'saldo_inicial_cuenta_usa', 'ajuste_saldo', 'gasto_usd', 'gasto_usa', 'ajuste_usd', 'ajuste_usa', 'prestamo_usd', 'prestamo_recibido_usd'].includes(form.tipo)
 
   const filtered = operaciones.filter(o => {
     if (filterCliente && !o.clientes?.nombre.toLowerCase().includes(filterCliente.toLowerCase())) return false
@@ -639,11 +643,11 @@ export default function OperacionesPage() {
               {/* Estado del préstamo */}
               {esPrestamo && (
                 <div className="pt-2">
-                  <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">¿Entregaste el dinero?</div>
+                  <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">{esPrestamoRecibido ? '¿Recibiste el dinero?' : '¿Entregaste el dinero?'}</div>
                   <div className="grid grid-cols-2 gap-2">
                     <button type="button" onClick={() => setForm({...form, pagado: true})}
                       className={`py-3 rounded-xl font-bold text-sm transition-colors ${form.pagado ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
-                      ✓ Sí, salió de la caja
+                      {esPrestamoRecibido ? '✓ Sí, entró a la caja' : '✓ Sí, salió de la caja'}
                     </button>
                     <button type="button" onClick={() => setForm({...form, pagado: false})}
                       className={`py-3 rounded-xl font-bold text-sm transition-colors ${!form.pagado ? 'bg-yellow-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
@@ -651,7 +655,9 @@ export default function OperacionesPage() {
                     </button>
                   </div>
                   <div className="mt-2 text-xs text-gray-500 bg-gray-50 px-3 py-2 rounded-lg">
-                    {form.pagado ? 'Descuenta de tu caja y queda como "me deben".' : 'No mueve la caja todavía, solo registra que el cliente te debe.'}
+                    {esPrestamoRecibido
+                      ? (form.pagado ? 'Suma a tu caja y queda como "le debo" al prestamista.' : 'No mueve la caja todavía, solo registra que vas a recibir el préstamo.')
+                      : (form.pagado ? 'Descuenta de tu caja y queda como "me deben".' : 'No mueve la caja todavía, solo registra que el cliente te debe.')}
                   </div>
                 </div>
               )}

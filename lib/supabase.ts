@@ -32,6 +32,8 @@ export type OperationType =
   | 'pago_deuda_usd'  | 'pago_deuda_ars'  | 'pago_deuda_usdt'  | 'pago_deuda_eur'
   // Préstamos (sale de la caja, el cliente queda debiendo)
   | 'prestamo_ars' | 'prestamo_ars_tt' | 'prestamo_usdt' | 'prestamo_usd'
+  // Préstamos recibidos (entra a la caja, yo le quedo debiendo al prestamista)
+  | 'prestamo_recibido_ars' | 'prestamo_recibido_ars_tt' | 'prestamo_recibido_usdt' | 'prestamo_recibido_usd'
 
 export const OPERATION_LABELS: Record<OperationType, string> = {
   compra_usd_cash: 'Compra USD Cash',
@@ -82,6 +84,10 @@ export const OPERATION_LABELS: Record<OperationType, string> = {
   prestamo_ars_tt:  '🤝 Préstamo ARS TT',
   prestamo_usdt:    '🤝 Préstamo USDT',
   prestamo_usd:     '🤝 Préstamo USD',
+  prestamo_recibido_ars:    '🫴 Préstamo recibido ARS (efectivo)',
+  prestamo_recibido_ars_tt: '🫴 Préstamo recibido ARS TT',
+  prestamo_recibido_usdt:   '🫴 Préstamo recibido USDT',
+  prestamo_recibido_usd:    '🫴 Préstamo recibido USD',
 }
 
 export const OPERATION_GROUPS: { label: string; types: OperationType[] }[] = [
@@ -121,6 +127,10 @@ export const OPERATION_GROUPS: { label: string; types: OperationType[] }[] = [
     label: '🤝 Préstamos',
     types: ['prestamo_ars', 'prestamo_ars_tt', 'prestamo_usdt', 'prestamo_usd'],
   },
+  {
+    label: '🫴 Préstamos recibidos',
+    types: ['prestamo_recibido_ars', 'prestamo_recibido_ars_tt', 'prestamo_recibido_usdt', 'prestamo_recibido_usd'],
+  },
 ]
 
 export const OPERATION_COLORS: Record<string, string> = {
@@ -157,6 +167,10 @@ export const OPERATION_COLORS: Record<string, string> = {
   prestamo_ars_tt: 'bg-indigo-100 text-indigo-800',
   prestamo_usdt: 'bg-indigo-100 text-indigo-800',
   prestamo_usd: 'bg-indigo-100 text-indigo-800',
+  prestamo_recibido_ars: 'bg-sky-100 text-sky-800',
+  prestamo_recibido_ars_tt: 'bg-sky-100 text-sky-800',
+  prestamo_recibido_usdt: 'bg-sky-100 text-sky-800',
+  prestamo_recibido_usd: 'bg-sky-100 text-sky-800',
 }
 
 // Which operation types use porcentaje
